@@ -38,6 +38,7 @@ import {
   CheckSquare,
   Archive,
   RefreshCw,
+  Copy,
 } from "lucide-react";
 import {
   today,
@@ -53,6 +54,7 @@ import {
   emptyData,
   demoData,
   blankOrder,
+  duplicateOrder,
   validateOrder,
   validateBackup,
   reminders,
@@ -2005,11 +2007,21 @@ export default function App() {
       {modal?.type === "order" && (
         <OrderForm
           order={modal.value}
+          copySource={modal.copySource}
           data={data}
           onSave={saveOrder}
-          onClose={() => setModal(null)}
+          onClose={() => {
+            const source = data.orders.find(
+              (o) => o.id === modal.copySource?.id,
+            );
+            setModal(source ? { type: "detail", value: source } : null);
+          }}
           onAddPartner={(draft) =>
-            setModal({ type: "partner", pendingOrder: draft })
+            setModal({
+              type: "partner",
+              pendingOrder: draft,
+              copySource: modal.copySource,
+            })
           }
         />
       )}
@@ -2028,6 +2040,15 @@ export default function App() {
             })
           }
           onDelete={() => deleteOrder(modal.value)}
+          onCopy={() => {
+            const source = data.orders.find((o) => o.id === modal.value.id);
+            if (source)
+              setModal({
+                type: "order",
+                value: duplicateOrder(source),
+                copySource: { id: source.id, title: source.title },
+              });
+          }}
           onPay={() =>
             setModal({
               type: "payment",
@@ -2080,7 +2101,11 @@ export default function App() {
           onClose={() =>
             setModal(
               modal.pendingOrder
-                ? { type: "order", value: modal.pendingOrder }
+                ? {
+                    type: "order",
+                    value: modal.pendingOrder,
+                    copySource: modal.copySource,
+                  }
                 : null,
             )
           }
@@ -2097,6 +2122,7 @@ export default function App() {
                 modal.nextOrder || modal.pendingOrder
                   ? {
                       type: "order",
+                      copySource: modal.copySource,
                       value: {
                         ...(modal.pendingOrder || blankOrder(selected)),
                         partnerId: p.id,
@@ -2204,7 +2230,7 @@ export default function App() {
   );
 }
 
-function OrderForm({ order, data, onSave, onClose, onAddPartner }) {
+function OrderForm({ order, copySource, data, onSave, onClose, onAddPartner }) {
   const [o, setO] = useState({ ...order });
   const set = (k, v) =>
     setO((prev) => ({
@@ -2221,7 +2247,11 @@ function OrderForm({ order, data, onSave, onClose, onAddPartner }) {
   return (
     <Modal
       title={
-        data.orders.some((x) => x.id === o.id) ? "编辑派单" : "安排一场新的拍摄"
+        copySource
+          ? "复制为新派单"
+          : data.orders.some((x) => x.id === o.id)
+            ? "编辑派单"
+            : "安排一场新的拍摄"
       }
       subtitle="从沟通到交付，把重要的细节记下来。"
       onClose={onClose}
@@ -2234,6 +2264,16 @@ function OrderForm({ order, data, onSave, onClose, onAddPartner }) {
         }}
       >
         <div className="form-body">
+          {copySource && (
+            <div className="info-strip copy-order-hint">
+              <strong>
+                沿用「{copySource.title}」的伙伴、地点、时段和费用约定
+              </strong>
+              <p>
+                请填写新主题和拍摄日期，并核对沟通日期。车费、付款与历史备注已清空，状态重置为待确认、待拍摄。
+              </p>
+            </div>
+          )}
           <div className="form-section-title">
             <span>01</span>拍摄与派单
           </div>
@@ -2525,6 +2565,7 @@ function OrderDetail({
   partner: p,
   onClose,
   onEdit,
+  onCopy,
   onDelete,
   onPay,
   onVoid,
@@ -2548,11 +2589,17 @@ function OrderDetail({
           </span>
           <h2>{o.title}</h2>
         </div>
-        <div className="detail-badges">
-          <Badge>{o.dispatchStatus}</Badge>
-          <Badge>{o.executionStatus}</Badge>
-          <Badge>{depositStatus(o)}</Badge>
-          <Badge>{settlementStatus(o)}</Badge>
+        <div className="detail-tools">
+          <div className="detail-badges">
+            <Badge>{o.dispatchStatus}</Badge>
+            <Badge>{o.executionStatus}</Badge>
+            <Badge>{depositStatus(o)}</Badge>
+            <Badge>{settlementStatus(o)}</Badge>
+          </div>
+          <button className="button copy-order-button" onClick={onCopy}>
+            <Copy size={15} />
+            复制派单
+          </button>
         </div>
         <div className="detail-block">
           <div>

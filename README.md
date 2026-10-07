@@ -10,6 +10,7 @@
 
 1. 在「合作伙伴」添加摄影师及联系方式，在「场地管理」记录城市、酒店和多个宴会厅。
 2. 新建派单，分别记录派单沟通日期和实际拍摄日期、拍摄时段、伙伴、场地与具体厅。
+   经常合作的同类拍摄可打开已有订单详情，点击「复制派单」，补填新主题与拍摄日期后保存。
 3. 拍摄费用与报销车费分列，记录定金约定及已有支付情况。后续每次支付定金或尾款时使用「登记付款」，在订单详情查看逐笔流水。
 4. 按日期、伙伴、场地、展厅、类型、定金与结算状态筛选；在日历切换拍摄日期或沟通日期。
 5. 在「数据与设置」定期导出 JSON 完整备份；CSV 明细可用于表格核对。
@@ -18,6 +19,7 @@
 
 - 工作台、日历、订单、伙伴、费用结算、常用场地、提醒和数据设置。
 - 手机端的近期订单、全部订单、账单和伙伴派单自动显示为卡片，拍摄时段、具体厅、沟通日期、定金及结算状态直接可见，可从卡片查看详情、打开伙伴派单或登记付款；电脑保留表格。
+- 复制派单沿用类型、伙伴、时段、城市 / 场地 / 展厅 / 地址、拍摄费和约定定金。新主题和拍摄日期必须重新填写，沟通日期默认今天且可调整；车费、已付款、流水和历史备注清空，状态回到待确认 / 待拍摄。复制草稿保存时仍检查档期冲突，原订单保持不变。
 - 应付合计 = 拍摄费用 + 报销车费；已付合计 = 已付定金 + 已付尾款；待结 = 应付合计 − 已付合计。
 - 已付定金不代表开始结尾款：仅支付定金且仍有余额时显示「未结账」；有部分尾款时为「部分结账」；余额为零时为「已结账」。
 - 付款流水保留每笔定金 / 尾款的金额、实际支付日期、登记时间和备注。误填时可填写原因撤销，原记录仍保留；支付日期汇总取有效付款中最晚的实际日期，支持补录较早的付款。
@@ -46,7 +48,7 @@ pnpm test
 pnpm build
 ```
 
-浏览器验收：安装 Playwright Chromium 后，启动 `pnpm dev --port 5188`，执行 `node scripts/qa.mjs`、`node scripts/regression.mjs`、`node scripts/mobile-orders.mjs` 与 `node scripts/payment-ledger.mjs`。可用 `QA_BROWSER_CHANNEL=msedge` 指定本机 Edge，否则使用 Playwright Chromium；`QA_BASE_URL` 可指定验收地址。脚本只操作独立测试浏览器，截图与备份仅写入忽略的 `test-results/`。
+浏览器验收：安装 Playwright Chromium 后，启动 `pnpm dev --port 5188`，执行 `node scripts/qa.mjs`、`node scripts/regression.mjs`、`node scripts/mobile-orders.mjs`、`node scripts/payment-ledger.mjs` 与 `node scripts/duplicate-order.mjs`。可用 `QA_BROWSER_CHANNEL=msedge` 指定本机 Edge，否则使用 Playwright Chromium；`QA_BASE_URL` 可指定验收地址。脚本只操作独立测试浏览器，截图与备份仅写入忽略的 `test-results/`。
 
 GitHub Actions 在主分支推送后运行单元测试及生产构建，成功后发布到 GitHub Pages。相对资源路径和 hash 导航兼容仓库子路径。
 

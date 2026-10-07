@@ -89,6 +89,22 @@ export function blankOrder(date = today()) {
     updatedAt: new Date().toISOString(),
   };
 }
+export function duplicateOrder(source) {
+  // Start fresh so future history and payment fields cannot leak into a new job.
+  return {
+    ...blankOrder(""),
+    type: source.type,
+    startTime: source.startTime,
+    endTime: source.endTime,
+    partnerId: source.partnerId,
+    city: source.city,
+    venue: source.venue,
+    hall: source.hall,
+    address: source.address,
+    amount: source.amount,
+    depositRequired: source.depositRequired,
+  };
+}
 const validDate = (v) =>
   typeof v === "string" &&
   /^\d{4}-\d{2}-\d{2}$/.test(v) &&
