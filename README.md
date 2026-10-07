@@ -17,6 +17,7 @@
 ## 功能与业务口径
 
 - 工作台、日历、订单、伙伴、费用结算、常用场地、提醒和数据设置。
+- 手机端的近期订单、全部订单、账单和伙伴派单自动显示为卡片，拍摄时段、具体厅、沟通日期、定金及结算状态直接可见，可从卡片查看详情、打开伙伴派单或登记付款；电脑保留表格。
 - 应付合计 = 拍摄费用 + 报销车费；已付合计 = 已付定金 + 已付尾款；待结 = 应付合计 − 已付合计。
 - 已付定金不代表开始结尾款：仅支付定金且仍有余额时显示「未结账」；有部分尾款时为「部分结账」；余额为零时为「已结账」。
 - 约定定金为零显示「无需定金」；应付合计为零显示「无需结账」。金额按分计算，禁止超额付款、负数和超过两位小数。
@@ -43,7 +44,7 @@ pnpm test
 pnpm build
 ```
 
-浏览器验收：安装 Playwright Chromium 后，启动 `pnpm dev --port 5188`，执行 `node scripts/qa.mjs` 与 `node scripts/regression.mjs`。可用 `QA_BROWSER_CHANNEL=msedge` 指定本机 Edge，否则使用 Playwright Chromium；`QA_BASE_URL` 可指定验收地址。脚本只操作独立测试浏览器，截图与备份仅写入忽略的 `test-results/`。
+浏览器验收：安装 Playwright Chromium 后，启动 `pnpm dev --port 5188`，执行 `node scripts/qa.mjs`、`node scripts/regression.mjs` 与 `node scripts/mobile-orders.mjs`。可用 `QA_BROWSER_CHANNEL=msedge` 指定本机 Edge，否则使用 Playwright Chromium；`QA_BASE_URL` 可指定验收地址。脚本只操作独立测试浏览器，截图与备份仅写入忽略的 `test-results/`。
 
 GitHub Actions 在主分支推送后运行单元测试及生产构建，成功后发布到 GitHub Pages。相对资源路径和 hash 导航兼容仓库子路径。
 

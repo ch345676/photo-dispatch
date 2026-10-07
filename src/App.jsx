@@ -749,82 +749,191 @@ export default function App() {
     return !rows.length ? (
       <Empty text="没有符合条件的派单" onAdd={() => newOrder()} />
     ) : (
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>拍摄任务 / 场地</th>
-              <th>拍摄日期</th>
-              <th>合作伙伴</th>
-              <th>应付金额</th>
-              {!compact && <th>定金状态</th>}
-              <th>结算状态</th>
-              <th>派单状态</th>
-              <th>
-                <span className="sr-only">操作</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((o) => (
-              <tr key={o.id}>
-                <td>
-                  <button
-                    className="table-title"
-                    onClick={() => setModal({ type: "detail", value: o })}
-                  >
-                    <span>{o.title}</span>
-                    <small>
-                      {o.venue} · {o.hall}
-                    </small>
-                  </button>
-                </td>
-                <td>
-                  <span className="date-cell">
-                    {o.shootDate.slice(5).replace("-", "月")}日
-                  </span>
-                  <small className="cell-sub">
-                    {o.startTime} – {o.endTime}
-                  </small>
-                </td>
-                <td>
-                  <button
-                    className="partner-inline"
-                    onClick={() => {
-                      navigate("partners");
-                      setPartnerView(o.partnerId);
-                    }}
-                  >
-                    <Avatar name={partner(o.partnerId)?.name || "伙伴"} small />
-                    {partner(o.partnerId)?.name}
-                  </button>
-                </td>
-                <td className="amount">¥ {money(payable(o))}</td>
-                {!compact && (
-                  <td>
-                    <Badge>{depositStatus(o)}</Badge>
-                  </td>
-                )}
-                <td>
-                  <Badge>{settlementStatus(o)}</Badge>
-                </td>
-                <td>
-                  <Badge>{o.dispatchStatus}</Badge>
-                </td>
-                <td>
-                  <button
-                    className="icon-button"
-                    aria-label={"查看" + o.title}
-                    onClick={() => setModal({ type: "detail", value: o })}
-                  >
-                    <ArrowUpRight size={17} />
-                  </button>
-                </td>
+      <>
+        <div className="table-wrap desktop-order-table">
+          <table>
+            <thead>
+              <tr>
+                <th>拍摄任务 / 场地</th>
+                <th>拍摄日期</th>
+                <th>合作伙伴</th>
+                <th>应付金额</th>
+                {!compact && <th>定金状态</th>}
+                <th>结算状态</th>
+                <th>派单状态</th>
+                <th>
+                  <span className="sr-only">操作</span>
+                </th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {rows.map((o) => (
+                <tr key={o.id}>
+                  <td>
+                    <button
+                      className="table-title"
+                      onClick={() => setModal({ type: "detail", value: o })}
+                    >
+                      <span>{o.title}</span>
+                      <small>
+                        {o.venue} · {o.hall}
+                      </small>
+                    </button>
+                  </td>
+                  <td>
+                    <span className="date-cell">
+                      {o.shootDate.slice(5).replace("-", "月")}日
+                    </span>
+                    <small className="cell-sub">
+                      {o.startTime} – {o.endTime}
+                    </small>
+                  </td>
+                  <td>
+                    <button
+                      className="partner-inline"
+                      onClick={() => {
+                        navigate("partners");
+                        setPartnerView(o.partnerId);
+                      }}
+                    >
+                      <Avatar
+                        name={partner(o.partnerId)?.name || "伙伴"}
+                        small
+                      />
+                      {partner(o.partnerId)?.name}
+                    </button>
+                  </td>
+                  <td className="amount">¥ {money(payable(o))}</td>
+                  {!compact && (
+                    <td>
+                      <Badge>{depositStatus(o)}</Badge>
+                    </td>
+                  )}
+                  <td>
+                    <Badge>{settlementStatus(o)}</Badge>
+                  </td>
+                  <td>
+                    <Badge>{o.dispatchStatus}</Badge>
+                  </td>
+                  <td>
+                    <button
+                      className="icon-button"
+                      aria-label={"查看" + o.title}
+                      onClick={() => setModal({ type: "detail", value: o })}
+                    >
+                      <ArrowUpRight size={17} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <ul className="mobile-order-list" aria-label="派单记录">
+          {rows.map((o) => {
+            const p = partner(o.partnerId);
+            return (
+              <li key={o.id}>
+                <article className="order-list-card" aria-label={o.title}>
+                  <div className="order-list-heading">
+                    <span
+                      className={
+                        "type-label " +
+                        (o.type === "婚庆" ? "wedding" : "event")
+                      }
+                    >
+                      {o.type}
+                    </span>
+                    <Badge>{o.dispatchStatus}</Badge>
+                  </div>
+                  <h3>{o.title}</h3>
+                  <div className="order-list-time">
+                    <CalendarDays size={15} />
+                    <time dateTime={o.shootDate}>{o.shootDate}</time>
+                    <span>
+                      {o.startTime} – {o.endTime}
+                    </span>
+                  </div>
+                  <div className="order-list-place">
+                    <MapPin size={15} />
+                    <div>
+                      <span>
+                        {o.city} · {o.venue}
+                      </span>
+                      <strong>{o.hall}</strong>
+                    </div>
+                  </div>
+                  <div className="order-list-partner">
+                    <button
+                      className="order-partner-button"
+                      onClick={() => {
+                        navigate("partners");
+                        setPartnerView(o.partnerId);
+                      }}
+                      aria-label={"查看" + (p?.name || "伙伴") + "的全部派单"}
+                    >
+                      <Avatar name={p?.name || "伙伴"} small />
+                      <span>{p?.name || "伙伴"}</span>
+                      <ChevronRight size={13} />
+                    </button>
+                    <Badge>{o.executionStatus}</Badge>
+                  </div>
+                  <div
+                    className={
+                      "order-list-payment" +
+                      (money(payable(o)).length > 10 ? " large-money" : "")
+                    }
+                  >
+                    <div>
+                      <span>应付合计</span>
+                      <strong>¥ {money(payable(o))}</strong>
+                    </div>
+                    <div className="order-list-balance">
+                      <span>待结金额</span>
+                      <strong>¥ {money(balance(o))}</strong>
+                    </div>
+                    <p>
+                      已付 ¥ {money(paid(o))}
+                      {o.travelAmount > 0 && (
+                        <span> · 应付含车费 ¥ {money(o.travelAmount)}</span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="order-list-status">
+                    <Badge>{depositStatus(o)}</Badge>
+                    <Badge>{settlementStatus(o)}</Badge>
+                  </div>
+                  <div className="order-list-communication">
+                    沟通于{" "}
+                    <time dateTime={o.communicatedDate}>
+                      {o.communicatedDate}
+                    </time>
+                  </div>
+                  <div className="order-list-actions">
+                    <button
+                      className="button"
+                      onClick={() => setModal({ type: "detail", value: o })}
+                      aria-label={"查看" + o.title + "详情"}
+                    >
+                      查看详情 <ArrowUpRight size={15} />
+                    </button>
+                    {balance(o) > 0 && (
+                      <button
+                        className="button soft"
+                        onClick={() => setModal({ type: "payment", value: o })}
+                        aria-label={"为" + o.title + "登记付款"}
+                      >
+                        <Wallet size={15} />
+                        登记付款
+                      </button>
+                    )}
+                  </div>
+                </article>
+              </li>
+            );
+          })}
+        </ul>
+      </>
     );
   }
   function stats() {
@@ -856,9 +965,14 @@ export default function App() {
               <Wallet size={19} />
             </span>
           </div>
-          <div className="stat-value">
+          <div
+            className={
+              "stat-value" +
+              (money(monthAmount).length > 8 ? " long-value" : "")
+            }
+          >
             <small>¥</small>
-            {money(monthAmount)}
+            <span className="stat-number">{money(monthAmount)}</span>
           </div>
           <div className="stat-foot">
             <span>按拍摄月份统计</span>
@@ -872,9 +986,13 @@ export default function App() {
               <CheckCheck size={19} />
             </span>
           </div>
-          <div className="stat-value">
+          <div
+            className={
+              "stat-value" + (money(monthPaid).length > 8 ? " long-value" : "")
+            }
+          >
             <small>¥</small>
-            {money(monthPaid)}
+            <span className="stat-number">{money(monthPaid)}</span>
           </div>
           <div className="stat-foot">
             <span>含已付定金与尾款</span>
@@ -888,9 +1006,14 @@ export default function App() {
               <Clock size={19} />
             </span>
           </div>
-          <div className="stat-value">
+          <div
+            className={
+              "stat-value" +
+              (money(monthBalance).length > 8 ? " long-value" : "")
+            }
+          >
             <small>¥</small>
-            {money(monthBalance)}
+            <span className="stat-number">{money(monthBalance)}</span>
           </div>
           <div className="stat-foot">
             <span>
