@@ -85,3 +85,5 @@
 开发服务器端口 5188，日志 preview.log / preview-error.log 均已忽略。本机 pnpm 入口可使用 `C:/Users/程浩/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/pnpm/bin/pnpm.cjs`。
 
 GitHub 上传通过本机 Git Credential Manager 的 ch345676 账号；不要使用属于其他账号的 connector 覆盖远程目标。不得输出或保存凭据。
+
+本轮遇到 Git 直连 GitHub 被重置、但 PowerShell 网页请求成功：本机已有系统代理。读取 `[System.Net.WebRequest]::DefaultWebProxy.GetProxy([uri]'https://github.com')`，在单次 Git 命令使用 `-c http.proxy=<系统代理地址>` 后上传成功；不更改全局 Git 配置，不硬编码代理端口。
