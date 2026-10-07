@@ -60,6 +60,11 @@ import {
   TYPES,
   DISPATCH,
   EXECUTION,
+  paymentLedger,
+  currentBaseline,
+  recordPayment,
+  voidPayment,
+  revisePaymentBaseline,
 } from "./domain.mjs";
 
 const NAV = [
@@ -627,10 +632,18 @@ export default function App() {
       notify("导入失败：" + err.message);
     }
   }
-  function saveOrder(o) {
+  function saveOrder(o, intent = "edit") {
     const current = data.orders.find((v) => v.id === o.id);
     if (current && current.updatedAt !== o.updatedAt) {
       notify("这场派单已被更新，请重新打开后编辑");
+      return false;
+    }
+    if (
+      current?.paymentLedger &&
+      intent === "edit" &&
+      JSON.stringify(current.paymentLedger) !== JSON.stringify(o.paymentLedger)
+    ) {
+      notify("付款记录请通过登记、撤销或更正初始累计修改");
       return false;
     }
     const err = validateOrder(o, data.partners);
@@ -2022,13 +2035,43 @@ export default function App() {
                 data.orders.find((o) => o.id === modal.value.id) || modal.value,
             })
           }
+          onVoid={(entryId) =>
+            setModal({
+              type: "void-payment",
+              value:
+                data.orders.find((o) => o.id === modal.value.id) || modal.value,
+              entryId,
+            })
+          }
+          onBaseline={() =>
+            setModal({
+              type: "payment-baseline",
+              value:
+                data.orders.find((o) => o.id === modal.value.id) || modal.value,
+            })
+          }
         />
       )}
       {modal?.type === "payment" && (
         <PaymentForm
           order={modal.value}
           onClose={() => setModal({ type: "detail", value: modal.value })}
-          onSave={saveOrder}
+          onSave={(o) => saveOrder(o, "payment")}
+        />
+      )}
+      {modal?.type === "void-payment" && (
+        <VoidPaymentForm
+          order={modal.value}
+          entryId={modal.entryId}
+          onSave={(o) => saveOrder(o, "payment")}
+          onClose={() => setModal({ type: "detail", value: modal.value })}
+        />
+      )}
+      {modal?.type === "payment-baseline" && (
+        <BaselineForm
+          order={modal.value}
+          onSave={(o) => saveOrder(o, "payment")}
+          onClose={() => setModal({ type: "detail", value: modal.value })}
         />
       )}
       {modal?.type === "partner" && (
@@ -2359,8 +2402,12 @@ function OrderForm({ order, data, onSave, onClose, onAddPartner }) {
                   type="number"
                   required
                   min="0"
-                  max="100000000"
+                  max={key === "settlementPaid" ? "200000000" : "100000000"}
                   step="0.01"
+                  readOnly={
+                    !!o.paymentLedger &&
+                    ["depositPaid", "settlementPaid"].includes(key)
+                  }
                   value={o[key]}
                   onChange={(e) =>
                     set(
@@ -2383,6 +2430,7 @@ function OrderForm({ order, data, onSave, onClose, onAddPartner }) {
               <input
                 type="date"
                 required={o.depositPaid > 0}
+                readOnly={!!o.paymentLedger}
                 value={o.depositDate}
                 onChange={(e) => set("depositDate", e.target.value)}
               />
@@ -2391,11 +2439,18 @@ function OrderForm({ order, data, onSave, onClose, onAddPartner }) {
               <input
                 type="date"
                 required={o.settlementPaid > 0}
+                readOnly={!!o.paymentLedger}
                 value={o.settlementDate}
                 onChange={(e) => set("settlementDate", e.target.value)}
               />
             </Field>
           </div>
+          {o.paymentLedger && (
+            <div className="info-strip ledger-edit-hint">
+              <Info size={15} />
+              已付金额及日期由付款记录自动汇总。新增付款、撤销或更正初始累计，请返回派单详情操作。
+            </div>
+          )}
           <div className="form-total">
             <span>
               应付合计 <strong>¥ {money(payable(o))}</strong>
@@ -2472,6 +2527,8 @@ function OrderDetail({
   onEdit,
   onDelete,
   onPay,
+  onVoid,
+  onBaseline,
 }) {
   return (
     <Modal
@@ -2561,6 +2618,7 @@ function OrderDetail({
             <small>{o.settlementDate || "尚无付款日期"}</small>
           </p>
         </div>
+        <PaymentHistory order={o} onVoid={onVoid} onBaseline={onBaseline} />
         {o.note && (
           <div className="detail-note">
             <h4>拍摄备注</h4>
@@ -2596,16 +2654,321 @@ function OrderDetail({
     </Modal>
   );
 }
+function PaymentHistory({ order, onVoid, onBaseline }) {
+  const ledger = paymentLedger(order);
+  const base = currentBaseline(ledger);
+  const records = [
+    ...ledger.entries.map((e) => ({ ...e, recordType: "payment" })),
+    ...ledger.revisions.map((e) => ({ ...e, recordType: "revision" })),
+  ].sort((a, b) => b.recordedAt.localeCompare(a.recordedAt));
+  const stamp = (value) =>
+    new Date(value).toLocaleString("zh-CN", {
+      timeZone: "Asia/Shanghai",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  return (
+    <section className="payment-history" aria-label="付款流水">
+      <div className="payment-history-heading">
+        <h3>
+          <Wallet size={17} />
+          付款流水{" "}
+          <span className="count-chip">
+            {ledger.entries.filter((e) => !e.voidedAt).length} 笔有效
+          </span>
+        </h3>
+        <button className="text-button" onClick={onBaseline}>
+          更正初始累计
+        </button>
+      </div>
+      <div className="ledger-baseline">
+        <div>
+          <strong>历史 / 初始累计</strong>
+          <span>
+            定金 ¥ {money(base.depositPaid)} · 尾款 ¥{" "}
+            {money(base.settlementPaid)}
+          </span>
+        </div>
+        <p>原有记录为累计金额，未拆分为单笔付款。</p>
+        {(base.depositPaid > 0 || base.settlementPaid > 0) && (
+          <p>
+            {base.depositPaid > 0 && <>原定金日期 {base.depositDate}</>}
+            {base.depositPaid > 0 && base.settlementPaid > 0 && " · "}
+            {base.settlementPaid > 0 && <>原尾款日期 {base.settlementDate}</>}
+          </p>
+        )}
+        {base.note && <p className="ledger-note">{base.note}</p>}
+        {ledger.revisions.length > 0 && (
+          <details>
+            <summary>查看首次保留的累计记录</summary>
+            <p>
+              定金 ¥ {money(ledger.baseline.depositPaid)}（
+              {ledger.baseline.depositDate || "未记录日期"}） · 尾款 ¥{" "}
+              {money(ledger.baseline.settlementPaid)}（
+              {ledger.baseline.settlementDate || "未记录日期"}）
+            </p>
+            {ledger.baseline.note && (
+              <p className="ledger-note">{ledger.baseline.note}</p>
+            )}
+          </details>
+        )}
+      </div>
+      {!records.length && (
+        <p className="ledger-empty">
+          还没有逐笔记录。下一次登记付款会保留在这里。
+        </p>
+      )}
+      <ol className="ledger-list">
+        {records.map((e) => (
+          <li
+            key={e.id}
+            className={"ledger-row " + (e.voidedAt ? "voided" : "")}
+          >
+            <div className="ledger-row-heading">
+              <div>
+                <span className="ledger-symbol">
+                  {e.recordType === "revision" ? (
+                    <Pencil size={16} />
+                  ) : (
+                    <Wallet size={16} />
+                  )}
+                </span>
+                <strong>
+                  {e.recordType === "revision"
+                    ? "更正初始累计"
+                    : e.kind === "deposit"
+                      ? "支付定金"
+                      : "支付尾款"}
+                </strong>
+                {e.voidedAt && <Badge tone="gray">已撤销</Badge>}
+              </div>
+              {e.recordType === "payment" && (
+                <strong className="ledger-amount">¥ {money(e.amount)}</strong>
+              )}
+            </div>
+            {e.recordType === "payment" ? (
+              <>
+                <p className="ledger-row-meta">
+                  付款日期 <time dateTime={e.date}>{e.date}</time>
+                  <span>登记于 {stamp(e.recordedAt)}</span>
+                </p>
+                {e.note && <p className="ledger-note">{e.note}</p>}
+                {e.voidedAt ? (
+                  <p className="ledger-void-reason">
+                    撤销原因：{e.voidReason}
+                    <span>撤销于 {stamp(e.voidedAt)}</span>
+                  </p>
+                ) : (
+                  <button
+                    className="text-button ledger-void-button"
+                    onClick={() => onVoid(e.id)}
+                    aria-label={
+                      "撤销" +
+                      (e.kind === "deposit" ? "定金" : "尾款") +
+                      "付款 " +
+                      money(e.amount) +
+                      " 元"
+                    }
+                  >
+                    撤销这笔记录
+                  </button>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="ledger-row-meta">
+                  更正后：定金 ¥ {money(e.value.depositPaid)} · 尾款 ¥{" "}
+                  {money(e.value.settlementPaid)}
+                </p>
+                <p className="ledger-note">更正原因：{e.reason}</p>
+                <p className="ledger-row-meta">{stamp(e.recordedAt)}</p>
+              </>
+            )}
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+function VoidPaymentForm({ order, entryId, onSave, onClose }) {
+  const [reason, setReason] = useState(""),
+    [error, setError] = useState("");
+  const entry = paymentLedger(order).entries.find((e) => e.id === entryId);
+  return (
+    <Modal title="撤销付款记录" subtitle={order.title} onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          try {
+            onSave(voidPayment(order, entryId, reason));
+          } catch (err) {
+            setError(err.message);
+          }
+        }}
+      >
+        <div className="form-body">
+          {error && (
+            <div className="error-banner" role="alert">
+              {error}
+            </div>
+          )}
+          <div className="info-strip">
+            {entry?.date} · {entry?.kind === "deposit" ? "定金" : "尾款"} ¥{" "}
+            {money(entry?.amount)}
+            。撤销后，这笔金额不再计入已付，原记录和原因会保留。请同时核对实际款项。
+          </div>
+          <Field label="撤销原因 *">
+            <textarea
+              required
+              rows={3}
+              maxLength={500}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="例如：重复登记，实际只支付了一次"
+            />
+          </Field>
+        </div>
+        <div className="modal-footer">
+          <button type="button" className="button" onClick={onClose}>
+            返回
+          </button>
+          <button type="submit" className="button danger">
+            确认撤销记录
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+function BaselineForm({ order, onSave, onClose }) {
+  const [value, setValue] = useState({
+      ...currentBaseline(paymentLedger(order)),
+    }),
+    [reason, setReason] = useState(""),
+    [error, setError] = useState("");
+  const change = (key, next) => {
+    setValue({ ...value, [key]: next });
+    setError("");
+  };
+  return (
+    <Modal title="更正初始累计" subtitle={order.title} onClose={onClose}>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          try {
+            onSave(revisePaymentBaseline(order, value, reason));
+          } catch (err) {
+            setError(err.message);
+          }
+        }}
+      >
+        <div className="form-body">
+          <div className="info-strip">
+            填写开始使用逐笔记录时的累计金额。更正原因会留档，后续逐笔付款仍自动计入总额。
+          </div>
+          {error && (
+            <div className="error-banner" role="alert">
+              {error}
+            </div>
+          )}
+          <div className="form-grid">
+            <Field label="初始已付定金 *">
+              <input
+                required
+                type="number"
+                min="0"
+                max="100000000"
+                step="0.01"
+                value={value.depositPaid}
+                onChange={(e) =>
+                  change(
+                    "depositPaid",
+                    e.target.value === "" ? "" : Number(e.target.value),
+                  )
+                }
+              />
+            </Field>
+            <Field label="初始定金日期">
+              <input
+                required={value.depositPaid > 0}
+                type="date"
+                value={value.depositDate}
+                onChange={(e) => change("depositDate", e.target.value)}
+              />
+            </Field>
+            <Field label="初始已付尾款 *">
+              <input
+                required
+                type="number"
+                min="0"
+                max="200000000"
+                step="0.01"
+                value={value.settlementPaid}
+                onChange={(e) =>
+                  change(
+                    "settlementPaid",
+                    e.target.value === "" ? "" : Number(e.target.value),
+                  )
+                }
+              />
+            </Field>
+            <Field label="初始尾款日期">
+              <input
+                required={value.settlementPaid > 0}
+                type="date"
+                value={value.settlementDate}
+                onChange={(e) => change("settlementDate", e.target.value)}
+              />
+            </Field>
+            <Field label="初始累计说明" span>
+              <textarea
+                rows={2}
+                maxLength={2000}
+                value={value.note}
+                onChange={(e) => change("note", e.target.value)}
+              />
+            </Field>
+            <Field label="更正原因 *" span>
+              <textarea
+                required
+                rows={2}
+                maxLength={500}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="说明原记录哪里填错了"
+              />
+            </Field>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button type="button" className="button" onClick={onClose}>
+            返回
+          </button>
+          <button type="submit" className="button primary">
+            确认更正
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
 function PaymentForm({ order, onSave, onClose }) {
   const [kind, setKind] = useState(
       order.depositPaid < order.depositRequired ? "deposit" : "settlement",
     ),
     [amount, setAmount] = useState(""),
     [date, setDate] = useState(today()),
-    [note, setNote] = useState(order.paymentNote);
+    [note, setNote] = useState(""),
+    [error, setError] = useState("");
   const remaining =
     kind === "deposit"
-      ? Math.round((order.depositRequired - order.depositPaid) * 100) / 100
+      ? Math.min(
+          balance(order),
+          Math.round((order.depositRequired - order.depositPaid) * 100) / 100,
+        )
       : balance(order);
   return (
     <Modal title="登记一笔付款" subtitle={order.title} onClose={onClose}>
@@ -2614,22 +2977,19 @@ function PaymentForm({ order, onSave, onClose }) {
           e.preventDefault();
           const n = Number(amount);
           if (!Number.isFinite(n) || n <= 0 || n > remaining) return;
-          onSave({
-            ...order,
-            [kind === "deposit" ? "depositPaid" : "settlementPaid"]:
-              Math.round(
-                ((kind === "deposit"
-                  ? order.depositPaid
-                  : order.settlementPaid) +
-                  n) *
-                  100,
-              ) / 100,
-            [kind === "deposit" ? "depositDate" : "settlementDate"]: date,
-            paymentNote: note,
-          });
+          try {
+            onSave(recordPayment(order, { kind, amount: n, date, note }));
+          } catch (err) {
+            setError(err.message);
+          }
         }}
       >
         <div className="form-body">
+          {error && (
+            <div className="error-banner" role="alert">
+              {error}
+            </div>
+          )}
           <div className="form-grid">
             <Field label="付款类型" span>
               <select
@@ -2645,7 +3005,7 @@ function PaymentForm({ order, onSave, onClose }) {
             </Field>
             <div className="info-strip span2">
               {kind === "deposit" ? "未付定金" : "剩余应付"} ¥{" "}
-              {money(remaining)}，本次登记会累计到已付金额。
+              {money(remaining)}，本次付款会单独留存，自动累计到已付金额。
             </div>
             <Field label="本次付款金额 *">
               <input
@@ -2674,7 +3034,7 @@ function PaymentForm({ order, onSave, onClose }) {
             >
               填入剩余金额 ¥ {money(remaining)}
             </button>
-            <Field label="结算备注" span>
+            <Field label="本次付款备注" span>
               <textarea
                 rows={3}
                 value={note}

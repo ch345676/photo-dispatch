@@ -1,4 +1,4 @@
-export const VERSION = 1;
+export const VERSION = 2;
 export const TYPES = ["婚庆", "活动", "其他"];
 export const DISPATCH = ["待确认", "已确认", "已拒绝", "已改期", "已取消"];
 export const EXECUTION = ["待拍摄", "已完成", "已取消", "已改期"];
@@ -96,6 +96,240 @@ const validDate = (v) =>
   shiftDate(v, 0) === v;
 const validTime = (v) =>
   typeof v === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(v);
+const validAmount = (v, max = 2e8) =>
+  typeof v === "number" &&
+  Number.isFinite(v) &&
+  v >= 0 &&
+  v <= max &&
+  Math.abs(v * 100 - Math.round(v * 100)) < 0.0001;
+const validStamp = (v) =>
+  typeof v === "string" &&
+  /^\d{4}-\d{2}-\d{2}T/.test(v) &&
+  Number.isFinite(Date.parse(v));
+const snapshotFields = [
+  "depositPaid",
+  "depositDate",
+  "settlementPaid",
+  "settlementDate",
+  "note",
+];
+function baselineError(b) {
+  if (
+    !b ||
+    !validAmount(b.depositPaid, 1e8) ||
+    !validAmount(b.settlementPaid) ||
+    typeof b.note !== "string" ||
+    b.note.length > 2000 ||
+    typeof b.depositDate !== "string" ||
+    typeof b.settlementDate !== "string"
+  )
+    return "初始付款累计格式无效";
+  if (
+    (b.depositDate && !validDate(b.depositDate)) ||
+    (b.settlementDate && !validDate(b.settlementDate)) ||
+    (b.depositPaid > 0 && !b.depositDate) ||
+    (b.settlementPaid > 0 && !b.settlementDate)
+  )
+    return "初始付款累计缺少有效日期";
+  return "";
+}
+export function paymentLedger(o) {
+  return (
+    o.paymentLedger || {
+      baseline: {
+        depositPaid: o.depositPaid,
+        depositDate: o.depositDate,
+        settlementPaid: o.settlementPaid,
+        settlementDate: o.settlementDate,
+        note: o.paymentNote,
+      },
+      entries: [],
+      revisions: [],
+    }
+  );
+}
+export const currentBaseline = (ledger) =>
+  ledger.revisions.length
+    ? ledger.revisions[ledger.revisions.length - 1].value
+    : ledger.baseline;
+export function ledgerTotals(ledger) {
+  const base = currentBaseline(ledger);
+  const result = {};
+  for (const kind of ["deposit", "settlement"]) {
+    const entries = ledger.entries.filter(
+      (e) => e.kind === kind && !e.voidedAt,
+    );
+    const total =
+      (cents(base[kind + "Paid"]) +
+        entries.reduce((sum, e) => sum + cents(e.amount), 0)) /
+      100;
+    const dates = [
+      ...(base[kind + "Paid"] > 0 ? [base[kind + "Date"]] : []),
+      ...entries.map((e) => e.date),
+    ];
+    result[kind + "Paid"] = total;
+    result[kind + "Date"] = total ? dates.sort().at(-1) || "" : "";
+  }
+  return result;
+}
+export function validateLedger(o) {
+  if (o.paymentLedger === undefined) return "";
+  const l = o.paymentLedger;
+  if (
+    !l ||
+    !Array.isArray(l.entries) ||
+    !Array.isArray(l.revisions) ||
+    l.entries.length > 5000 ||
+    l.revisions.length > 1000
+  )
+    return "付款流水格式或记录数量无效";
+  const baseError = baselineError(l.baseline);
+  if (baseError) return baseError;
+  const ids = new Set();
+  for (const e of [...l.entries, ...l.revisions]) {
+    if (
+      !e ||
+      typeof e.id !== "string" ||
+      !e.id ||
+      ids.has(e.id) ||
+      !validStamp(e.recordedAt)
+    )
+      return "付款记录编号重复或记录时间无效";
+    ids.add(e.id);
+  }
+  for (const e of l.entries) {
+    if (
+      !["deposit", "settlement"].includes(e.kind) ||
+      !validAmount(e.amount) ||
+      e.amount <= 0 ||
+      !validDate(e.date) ||
+      typeof e.note !== "string" ||
+      e.note.length > 2000 ||
+      typeof e.voidedAt !== "string" ||
+      typeof e.voidReason !== "string" ||
+      e.voidReason.length > 500
+    )
+      return "单笔付款记录无效";
+    if (
+      e.voidedAt
+        ? !validStamp(e.voidedAt) ||
+          !e.voidReason.trim() ||
+          Date.parse(e.voidedAt) < Date.parse(e.recordedAt)
+        : e.voidReason !== ""
+    )
+      return "撤销记录缺少有效时间或原因";
+  }
+  for (const r of l.revisions) {
+    if (
+      baselineError(r.value) ||
+      typeof r.reason !== "string" ||
+      !r.reason.trim() ||
+      r.reason.length > 500
+    )
+      return "初始累计更正记录无效";
+  }
+  const totals = ledgerTotals(l);
+  if (
+    ["depositPaid", "settlementPaid"].some(
+      (k) => cents(o[k]) !== cents(totals[k]),
+    ) ||
+    ["depositDate", "settlementDate"].some((k) => o[k] !== totals[k])
+  )
+    return "付款累计金额或日期与流水不一致，请核对备份";
+  return "";
+}
+function withLedger(o, ledger) {
+  const updated = { ...o, paymentLedger: ledger, ...ledgerTotals(ledger) };
+  const error = validateLedger(updated);
+  if (error) throw new Error(error);
+  if (
+    updated.depositPaid > updated.depositRequired ||
+    cents(paid(updated)) > cents(payable(updated))
+  )
+    throw new Error("更正后的付款超过约定定金或应付金额");
+  return updated;
+}
+export function recordPayment(o, input) {
+  if (
+    !["deposit", "settlement"].includes(input.kind) ||
+    !validAmount(input.amount) ||
+    input.amount <= 0 ||
+    !validDate(input.date) ||
+    typeof input.note !== "string" ||
+    input.note.length > 2000
+  )
+    throw new Error("请填写有效的付款类型、金额、日期与备注");
+  const available =
+    input.kind === "deposit"
+      ? Math.min(
+          balance(o),
+          (cents(o.depositRequired) - cents(o.depositPaid)) / 100,
+        )
+      : balance(o);
+  if (cents(input.amount) > cents(available))
+    throw new Error("本次付款超过剩余应付金额");
+  const ledger = paymentLedger(o);
+  return withLedger(o, {
+    ...ledger,
+    entries: [
+      ...ledger.entries,
+      {
+        id: uid(),
+        kind: input.kind,
+        amount: input.amount,
+        date: input.date,
+        note: input.note,
+        recordedAt: new Date().toISOString(),
+        voidedAt: "",
+        voidReason: "",
+      },
+    ],
+  });
+}
+export function voidPayment(o, entryId, reason) {
+  if (typeof reason !== "string" || !reason.trim() || reason.length > 500)
+    throw new Error("请填写撤销原因（最多 500 字）");
+  const ledger = paymentLedger(o);
+  const entry = ledger.entries.find((e) => e.id === entryId);
+  if (!entry || entry.voidedAt) throw new Error("这笔付款不存在或已撤销");
+  return withLedger(o, {
+    ...ledger,
+    entries: ledger.entries.map((e) =>
+      e.id === entryId
+        ? {
+            ...e,
+            voidedAt: new Date().toISOString(),
+            voidReason: reason.trim(),
+          }
+        : e,
+    ),
+  });
+}
+export function revisePaymentBaseline(o, value, reason) {
+  const error = baselineError(value);
+  if (error) throw new Error(error);
+  if (typeof reason !== "string" || !reason.trim() || reason.length > 500)
+    throw new Error("请填写更正原因（最多 500 字）");
+  const ledger = paymentLedger(o);
+  const cleanValue = Object.fromEntries(
+    snapshotFields.map((k) => [k, value[k]]),
+  );
+  const base = currentBaseline(ledger);
+  if (snapshotFields.every((k) => base[k] === cleanValue[k]))
+    throw new Error("初始累计没有变化，无需更正");
+  return withLedger(o, {
+    ...ledger,
+    revisions: [
+      ...ledger.revisions,
+      {
+        id: uid(),
+        value: cleanValue,
+        reason: reason.trim(),
+        recordedAt: new Date().toISOString(),
+      },
+    ],
+  });
+}
 export function validateOrder(o, partners) {
   if (!o.title?.trim()) return "请填写拍摄主题";
   if (!partners.some((p) => p.id === o.partnerId))
@@ -111,20 +345,15 @@ export function validateOrder(o, partners) {
   if (!o.city?.trim() || !o.venue?.trim() || !o.hall?.trim())
     return "请完整填写城市、场地和展厅 / 宴会厅";
   if (
-    ![
-      o.amount,
-      o.travelAmount ?? 0,
-      o.depositRequired,
-      o.depositPaid,
-      o.settlementPaid,
-    ].every(
+    ![o.amount, o.travelAmount ?? 0, o.depositRequired, o.depositPaid].every(
       (v) =>
         typeof v === "number" &&
         Number.isFinite(v) &&
         v >= 0 &&
         v <= 1e8 &&
         Math.abs(v * 100 - Math.round(v * 100)) < 0.0001,
-    )
+    ) ||
+    !validAmount(o.settlementPaid)
   )
     return "金额应为非负数，最多两位小数";
   if (cents(o.depositRequired) > cents(o.amount))
@@ -147,6 +376,8 @@ export function validateOrder(o, partners) {
     return "订单状态无效";
   if (o.dispatchStatus === "已取消" && o.executionStatus !== "已取消")
     return "已取消派单的执行状态也应为已取消";
+  const ledgerError = validateLedger(o);
+  if (ledgerError) return ledgerError;
   return "";
 }
 export function conflicts(order, orders) {
@@ -209,13 +440,13 @@ export function reminders(data, date = today()) {
 export function validateBackup(d) {
   if (
     !d ||
-    d.version !== VERSION ||
+    ![1, VERSION].includes(d.version) ||
     !Array.isArray(d.orders) ||
     !Array.isArray(d.partners) ||
     !Array.isArray(d.venues) ||
     !d.settings
   )
-    throw new Error("文件不是有效的拾光派单备份（版本 1）");
+    throw new Error("文件不是有效的拾光派单备份（支持版本 1、2）");
   d = {
     ...d,
     orders: d.orders.map((o) => ({

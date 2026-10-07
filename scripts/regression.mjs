@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
-import { demoData, today, balance } from "../src/domain.mjs";
+import { demoData, today, balance, recordPayment } from "../src/domain.mjs";
 const browser = await chromium.launch({
   headless: true,
   ...(process.env.QA_BROWSER_CHANNEL
@@ -88,12 +88,20 @@ assert.ok(
 );
 const p2 = await context.newPage();
 await p2.goto(url, { waitUntil: "networkidle" });
-await p2.evaluate(() => {
-  const d = JSON.parse(localStorage.getItem("shiguang-photo-v1-personal"));
-  d.orders[0].settlementPaid = 420;
-  d.orders[0].updatedAt = new Date().toISOString();
-  localStorage.setItem("shiguang-photo-v1-personal", JSON.stringify(d));
-});
+const concurrentData = structuredClone(saved);
+concurrentData.orders[0] = {
+  ...recordPayment(concurrentData.orders[0], {
+    kind: "settlement",
+    amount: 120,
+    date: today(),
+    note: "另一标签新增付款",
+  }),
+  updatedAt: new Date().toISOString(),
+};
+await p2.evaluate(
+  (d) => localStorage.setItem("shiguang-photo-v1-personal", JSON.stringify(d)),
+  concurrentData,
+);
 await p.waitForFunction(
   () => document.querySelectorAll("dialog[open]").length === 0,
 );
