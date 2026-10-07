@@ -14,6 +14,7 @@
 3. 拍摄费用与报销车费分列，记录定金约定及已有支付情况。后续每次支付定金或尾款时使用「登记付款」，在订单详情查看逐笔流水。
 4. 按日期、伙伴、场地、展厅、类型、定金与结算状态筛选；在日历切换拍摄日期或沟通日期。
 5. 在「数据与设置」定期导出 JSON 完整备份；CSV 明细可用于表格核对。
+   工作台会在个人空间有业务数据、但本机没有完整备份导出记录或距上次导出满 7 天时提醒，也可选择「明天提醒」。
 
 ## 功能与业务口径
 
@@ -30,12 +31,15 @@
 - 改期保留沟通日期并把原拍摄日期记入备注；取消保留所有历史付款信息。
 - 提醒含前 3 天、前 1 天、当天拍摄、未确认、未付定金、完成后未结清与改期取消。提醒在网页打开时计算；没有后台推送。
 - 演示和个人空间分离；同步同一浏览器的标签页，检测过期写入，避免覆盖其他页面已保存的数据。
+- 备份提醒按空间独立记录。「明天提醒」暂缓至北京时间次日零点；设置页显示最近发起完整备份导出的时间，恢复备份后建议重新导出。空白空间和演示空间不显示工作台备份提醒，CSV 与原始存储下载不更新完整备份记录。
 
 ## 数据边界
 
 数据保存在当前浏览器的 localStorage，无服务器、登录、云同步或第三方数据上传。清除浏览器数据会删除记录。JSON 备份包含个人业务信息，请自行妥善保管。导入为当前空间的完整替换，执行前需确认，并建议先备份。当前导出版本为 2，包含付款流水、撤销和初始累计更正记录；继续支持版本 1 备份，较早的不含车费字段的备份恢复时车费默认为零。流水与累计金额不一致的备份会被拒绝，当前数据保持不变。CSV 用于核对订单累计金额，逐笔记录请通过 JSON 完整备份保存。
 
 公开仓库只包含代码和虚构演示数据，不包含你的实际订单、测试浏览器数据或导出的备份。
+
+网页只能记录发起下载的时间，不能确认文件最终保存到了设备，请检查浏览器下载结果。提醒时间保存在本机独立记录中，不写入订单或 JSON 备份；清除这些记录或更换浏览器后，不会推测以前的导出时间。导出会读取并校验当前空间的最新存储；存储损坏、下载启动失败，或存储被移除但页面仍有记录时，不会把空备份记为成功导出。读取导入文件期间切换空间，会取消那次导入。
 
 ## 开发
 
@@ -48,7 +52,7 @@ pnpm test
 pnpm build
 ```
 
-浏览器验收：安装 Playwright Chromium 后，启动 `pnpm dev --port 5188`，执行 `node scripts/qa.mjs`、`node scripts/regression.mjs`、`node scripts/mobile-orders.mjs`、`node scripts/payment-ledger.mjs` 与 `node scripts/duplicate-order.mjs`。可用 `QA_BROWSER_CHANNEL=msedge` 指定本机 Edge，否则使用 Playwright Chromium；`QA_BASE_URL` 可指定验收地址。脚本只操作独立测试浏览器，截图与备份仅写入忽略的 `test-results/`。
+浏览器验收：安装 Playwright Chromium 后，启动 `pnpm dev --port 5188`，执行 `node scripts/qa.mjs`、`node scripts/regression.mjs`、`node scripts/mobile-orders.mjs`、`node scripts/payment-ledger.mjs`、`node scripts/duplicate-order.mjs` 与 `node scripts/backup-reminder.mjs`。可用 `QA_BROWSER_CHANNEL=msedge` 指定本机 Edge，否则使用 Playwright Chromium；`QA_BASE_URL` 可指定验收地址。脚本只操作独立测试浏览器，截图与备份仅写入忽略的 `test-results/`。
 
 GitHub Actions 在主分支推送后运行单元测试及生产构建，成功后发布到 GitHub Pages。相对资源路径和 hash 导航兼容仓库子路径。
 

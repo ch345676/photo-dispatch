@@ -68,6 +68,11 @@ import {
   voidPayment,
   revisePaymentBaseline,
 } from "./domain.mjs";
+import {
+  normalizeBackupMeta,
+  nextBackupReminder,
+  backupStatus,
+} from "./backup.mjs";
 
 const NAV = [
   ["overview", "工作台", LayoutDashboard],
@@ -78,6 +83,52 @@ const NAV = [
   ["venues", "场地管理", MapPin],
 ];
 const STORAGE = "shiguang-photo-v1-";
+const backupKey = (mode) => STORAGE + "backup-" + mode;
+function readBackupMeta(mode) {
+  try {
+    return normalizeBackupMeta(
+      JSON.parse(localStorage.getItem(backupKey(mode))),
+    );
+  } catch {
+    return normalizeBackupMeta(null);
+  }
+}
+const backupCopy = {
+  empty: [
+    "还没有需要备份的业务记录",
+    "添加订单、伙伴或场地后，会在这里提醒你定期导出。",
+  ],
+  demo: [
+    "当前为演示空间",
+    "演示备份和个人备份分别记录，演示操作不会影响个人提醒。",
+  ],
+  never: [
+    "给本地记录留一份备份",
+    "本机尚无完整备份导出记录。将订单、付款流水、伙伴和场地一起保存到文件。",
+  ],
+  restored: [
+    "恢复后的数据，建议重新备份",
+    "最近恢复了备份，请为当前空间再导出一份完整文件。",
+  ],
+  stale: [
+    "该更新你的备份了",
+    "距上次导出已满 7 天，建议保存一份最新的完整备份。",
+  ],
+  recent: [
+    "近期已发起备份导出",
+    "新增或修改的记录不会自动写入之前的备份，可随时再次导出。",
+  ],
+};
+function backupTime(value) {
+  return new Date(value).toLocaleString("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 function readInitial() {
   let mode = "demo";
   try {
@@ -209,8 +260,11 @@ function download(content, name, type = "application/json") {
   const a = document.createElement("a");
   a.href = u;
   a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(u), 2000);
+  try {
+    a.click();
+  } finally {
+    setTimeout(() => URL.revokeObjectURL(u), 2000);
+  }
 }
 function Calendar({
   orders,
@@ -337,6 +391,11 @@ export default function App() {
     [mode, setMode] = useState(initial.mode),
     [data, setData] = useState(initial.data),
     [storageError, setStorageError] = useState(initial.error);
+  const [backupMeta, setBackupMeta] = useState(() =>
+    readBackupMeta(initial.mode),
+  );
+  const [backupNow, setBackupNow] = useState(Date.now);
+  const backup = backupStatus(data, mode, backupMeta, backupNow);
   const [page, setPage] = useState(() =>
     NAV.some((n) => n[0] === location.hash.slice(1)) ||
     ["reminders", "settings"].includes(location.hash.slice(1))
@@ -364,6 +423,7 @@ export default function App() {
     [tab, setTab] = useState("all"),
     [partnerView, setPartnerView] = useState("");
   const importRef = useRef(null);
+  const importRequest = useRef(0);
   function notify(s) {
     setToast(s);
   }
@@ -382,7 +442,22 @@ export default function App() {
     return () => window.removeEventListener("hashchange", h);
   }, []);
   useEffect(() => {
+    const refresh = () => setBackupNow(Date.now());
+    const timer = setInterval(refresh, 60000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
+  useEffect(() => {
     const h = (e) => {
+      if (e.key === backupKey(mode)) {
+        setBackupMeta(readBackupMeta(mode));
+        setBackupNow(Date.now());
+      }
       if (e.key === STORAGE + mode && e.newValue) {
         try {
           setData(validateBackup(JSON.parse(e.newValue)));
@@ -396,6 +471,21 @@ export default function App() {
     window.addEventListener("storage", h);
     return () => window.removeEventListener("storage", h);
   }, [mode]);
+  function saveBackupMeta(patch) {
+    const next = normalizeBackupMeta({ ...readBackupMeta(mode), ...patch });
+    setBackupMeta(next);
+    setBackupNow(Date.now());
+    try {
+      localStorage.setItem(backupKey(mode), JSON.stringify(next));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  function snoozeBackup() {
+    if (!saveBackupMeta({ snoozedUntil: nextBackupReminder() }))
+      notify("本次已暂缓提醒，但浏览器未保存提醒时间；重新打开后可能再次显示");
+  }
   function persist(next, force = false) {
     if (storageError && !force) {
       notify("请先在数据设置中导出原始数据并恢复备份");
@@ -438,8 +528,11 @@ export default function App() {
           ? demoData()
           : emptyData();
       localStorage.setItem(STORAGE + "mode", next);
+      importRequest.current++;
       setData(nextData);
       setMode(next);
+      setBackupMeta(readBackupMeta(next));
+      setBackupNow(Date.now());
       setStorageError("");
       setModal(null);
       notify(
@@ -519,15 +612,46 @@ export default function App() {
       );
   }
   function exportData() {
-    download(
-      JSON.stringify(
-        { ...data, exportedAt: new Date().toISOString(), space: mode },
-        null,
-        2,
-      ),
-      `拾光派单-${mode === "demo" ? "演示" : "个人"}备份-${today()}.json`,
-    );
-    notify("备份已导出，请妥善保管");
+    if (storageError) {
+      notify("数据读取异常，请先下载原始存储文件，再恢复有效备份");
+      return;
+    }
+    try {
+      // Read at export time so another tab's newer payment is included.
+      const raw = localStorage.getItem(STORAGE + mode);
+      if (
+        raw === null &&
+        mode === "personal" &&
+        (data.orders.length || data.partners.length || data.venues.length)
+      ) {
+        notify(
+          "本地存储记录已被移除，暂不导出空备份。页面中的记录仍保留，请先核对浏览器存储情况",
+        );
+        return;
+      }
+      const latest = validateBackup(
+        raw !== null ? JSON.parse(raw) : mode === "demo" ? data : emptyData(),
+      );
+      const exportedAt = new Date().toISOString();
+      download(
+        JSON.stringify({ ...latest, exportedAt, space: mode }, null, 2),
+        `拾光派单-${mode === "demo" ? "演示" : "个人"}备份-${today()}.json`,
+      );
+      const recorded = saveBackupMeta({
+        lastExportedAt: exportedAt,
+        lastRestoredAt: "",
+        snoozedUntil: "",
+      });
+      notify(
+        recorded
+          ? "已发起备份下载，请确认文件已保存到设备"
+          : "已发起备份下载，但导出时间未能保存；请确认文件已保存到设备",
+      );
+    } catch {
+      notify(
+        "完整备份导出失败，未更新导出记录。请检查浏览器下载设置；若数据损坏，请先下载原始存储文件",
+      );
+    }
   }
   function exportCSV(rows) {
     const cols = [
@@ -614,23 +738,36 @@ export default function App() {
     const file = e.target.files[0];
     e.target.value = "";
     if (!file) return;
+    const request = ++importRequest.current;
     try {
       if (file.size > 10 * 1024 * 1024)
         throw new Error("备份文件不能超过 10 MB");
-      const d = validateBackup(JSON.parse(await file.text()));
+      const contents = await file.text();
+      if (request !== importRequest.current) return;
+      const d = validateBackup(JSON.parse(contents));
       setModal({
         type: "confirm",
         title: "恢复备份",
         message: `将用备份中的 ${d.orders.length} 场订单、${d.partners.length} 位伙伴替换当前${mode === "demo" ? "演示" : "个人"}空间。建议先导出当前数据。`,
         action: "确认恢复",
         onConfirm: () => {
+          if (request !== importRequest.current) return;
           if (persist(d, true)) {
             setModal(null);
-            notify("备份已恢复");
+            const recorded = saveBackupMeta({
+              lastRestoredAt: new Date().toISOString(),
+              snoozedUntil: "",
+            });
+            notify(
+              recorded
+                ? "备份已恢复，建议为当前数据重新导出备份"
+                : "备份已恢复；提醒时间未能保存，建议立即导出备份",
+            );
           }
         },
       });
     } catch (err) {
+      if (request !== importRequest.current) return;
       notify("导入失败：" + err.message);
     }
   }
@@ -1278,6 +1415,26 @@ export default function App() {
               {storageError}
             </div>
           )}
+          {page === "overview" && backup.show && !storageError && (
+            <section className="backup-reminder" aria-label="备份提醒">
+              <span className="backup-reminder-icon">
+                <HardDrive size={22} />
+              </span>
+              <div className="backup-reminder-copy">
+                <h2>{backupCopy[backup.reason][0]}</h2>
+                <p>{backupCopy[backup.reason][1]}</p>
+              </div>
+              <div className="backup-reminder-actions">
+                <button className="button primary" onClick={exportData}>
+                  <Download size={16} />
+                  导出完整备份
+                </button>
+                <button className="text-button" onClick={snoozeBackup}>
+                  明天提醒
+                </button>
+              </div>
+            </section>
+          )}
           {page === "overview" && (
             <>
               {stats()}
@@ -1885,6 +2042,33 @@ export default function App() {
                   <span>
                     <strong>{data.venues.length}</strong> 处场地
                   </span>
+                </div>
+                <div
+                  className={"backup-summary " + (backup.due ? "due" : "")}
+                  aria-label="备份记录"
+                >
+                  <h3>
+                    {storageError
+                      ? "请先保留原始存储文件"
+                      : backupCopy[backup.reason][0]}
+                  </h3>
+                  {!storageError && <p>{backupCopy[backup.reason][1]}</p>}
+                  <p>
+                    最近发起导出：
+                    {backup.lastExportedAt
+                      ? backupTime(backup.lastExportedAt)
+                      : "本机暂无记录"}
+                  </p>
+                  <small>
+                    网页只能记录发起下载的时间，请确认文件已保存。CSV
+                    和原始存储下载不计为完整备份。
+                  </small>
+                  {backup.due && !backup.show && (
+                    <p>
+                      已暂缓至 {backupTime(backup.snoozedUntil)}{" "}
+                      再提醒，仍可随时导出。
+                    </p>
+                  )}
                 </div>
                 <div className="button-row">
                   <button className="button primary" onClick={exportData}>

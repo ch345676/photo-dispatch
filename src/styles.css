@@ -1798,6 +1798,87 @@ tbody tr:hover {
   gap: 22px;
   align-items: start;
 }
+.backup-reminder {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 18px;
+  padding: 22px 26px;
+  margin-bottom: 24px;
+  background: #f5f8e9;
+  border: 1px solid #e5edcc;
+  border-radius: var(--radius);
+}
+.backup-reminder-icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 44px;
+  height: 44px;
+  color: var(--olive);
+  background: #eaf0d6;
+  border-radius: 14px;
+}
+.backup-reminder-copy {
+  flex: 1 1 280px;
+  min-width: 0;
+}
+.backup-reminder h2,
+.backup-summary h3 {
+  font-size: 14px;
+  font-weight: 550;
+  margin: 0;
+  color: #516430;
+}
+.backup-reminder p {
+  margin: 6px 0 0;
+  color: #687753;
+  font-size: 12px;
+  line-height: 1.8;
+}
+.backup-reminder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+}
+.backup-reminder-actions button {
+  min-height: 44px;
+}
+.backup-summary {
+  background: #f1f6fb;
+  border-radius: 14px;
+  padding: 18px;
+  margin: 0 0 20px;
+  overflow-wrap: anywhere;
+}
+.backup-summary.due {
+  background: #f5f8e9;
+}
+.backup-summary p {
+  font-size: 12px;
+  line-height: 1.8;
+  color: #61724b;
+  margin: 10px 0;
+}
+.backup-summary small {
+  display: block;
+  font-size: 11px;
+  line-height: 1.8;
+  color: #74816a;
+}
+@media (max-width: 760px) {
+  .backup-reminder {
+    gap: 14px;
+    padding: 20px;
+  }
+  .backup-reminder-copy {
+    flex-basis: calc(100% - 58px);
+  }
+  .backup-reminder-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
 .settings-card {
   padding: 6px 26px 26px;
 }
