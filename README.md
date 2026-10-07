@@ -2,6 +2,8 @@
 
 面向摄影师和摄影团队负责人的个人派单、拍摄日历与结算管理工具。电脑与手机均可使用。
 
+[在线使用](https://ch345676.github.io/photo-dispatch/)
+
 ## 使用
 
 首次打开进入独立的演示空间，点击「进入个人空间」开始记录自己的业务数据。
@@ -41,7 +43,7 @@ pnpm test
 pnpm build
 ```
 
-浏览器验收：安装 Playwright 和 Chromium 后，启动 `pnpm dev --port 5188`，执行 `node scripts/qa.mjs`。可用 `QA_BROWSER_CHANNEL=msedge` 指定本机 Edge，否则使用 Playwright Chromium；`QA_BASE_URL` 可指定验收地址。截图与备份仅写入忽略的 `test-results/`。
+浏览器验收：安装 Playwright Chromium 后，启动 `pnpm dev --port 5188`，执行 `node scripts/qa.mjs` 与 `node scripts/regression.mjs`。可用 `QA_BROWSER_CHANNEL=msedge` 指定本机 Edge，否则使用 Playwright Chromium；`QA_BASE_URL` 可指定验收地址。脚本只操作独立测试浏览器，截图与备份仅写入忽略的 `test-results/`。
 
 GitHub Actions 在主分支推送后运行单元测试及生产构建，成功后发布到 GitHub Pages。相对资源路径和 hash 导航兼容仓库子路径。
 

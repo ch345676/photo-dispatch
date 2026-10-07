@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   Camera,
   LayoutDashboard,
@@ -109,6 +110,22 @@ function Badge({ children, tone }) {
       <i />
       {children}
     </span>
+  );
+}
+function Toast({ message, onClose, modal }) {
+  const [target, setTarget] = useState(document.body);
+  useEffect(() => {
+    setTarget(document.querySelector("dialog[open]") || document.body);
+  }, [message, modal]);
+  return createPortal(
+    <div className="toast" role="status">
+      <Info size={18} />
+      {message}
+      <button aria-label="关闭提示" onClick={onClose}>
+        <X size={15} />
+      </button>
+    </div>,
+    target,
   );
 }
 function Avatar({ name, small = false }) {
@@ -2015,13 +2032,7 @@ export default function App() {
         </Modal>
       )}
       {toast && (
-        <div className="toast" role="status">
-          <Info size={18} />
-          {toast}
-          <button aria-label="关闭提示" onClick={() => setToast("")}>
-            <X size={15} />
-          </button>
-        </div>
+        <Toast message={toast} modal={modal} onClose={() => setToast("")} />
       )}
     </div>
   );
