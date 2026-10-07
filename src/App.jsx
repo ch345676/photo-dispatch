@@ -73,6 +73,7 @@ import {
   nextBackupReminder,
   backupStatus,
 } from "./backup.mjs";
+import { summarizeBackup } from "./import-preview.mjs";
 
 const NAV = [
   ["overview", "工作台", LayoutDashboard],
@@ -744,14 +745,58 @@ export default function App() {
         throw new Error("备份文件不能超过 10 MB");
       const contents = await file.text();
       if (request !== importRequest.current) return;
-      const d = validateBackup(JSON.parse(contents));
+      const source = JSON.parse(contents);
+      const d = validateBackup(source);
+      const snapshot = localStorage.getItem(STORAGE + mode);
+      let current = null;
+      try {
+        const missingStoredData =
+          snapshot === null &&
+          (storageError ||
+            (mode === "personal" &&
+              (data.orders.length ||
+                data.partners.length ||
+                data.venues.length)));
+        if (!missingStoredData)
+          current = summarizeBackup(
+            validateBackup(snapshot === null ? data : JSON.parse(snapshot)),
+          );
+      } catch {
+        // A valid backup can still restore damaged local data; unknown totals stay unknown.
+      }
       setModal({
-        type: "confirm",
-        title: "恢复备份",
-        message: `将用备份中的 ${d.orders.length} 场订单、${d.partners.length} 位伙伴替换当前${mode === "demo" ? "演示" : "个人"}空间。建议先导出当前数据。`,
-        action: "确认恢复",
+        type: "import-preview",
+        preview: {
+          fileName: file.name,
+          version: source.version,
+          sourceSpace:
+            source.space === "demo"
+              ? "演示空间"
+              : source.space === "personal"
+                ? "个人空间"
+                : "未注明",
+          exportedAt:
+            typeof source.exportedAt === "string" &&
+            /^\d{4}-\d{2}-\d{2}T/.test(source.exportedAt) &&
+            Number.isFinite(Date.parse(source.exportedAt))
+              ? source.exportedAt
+              : "",
+          incoming: summarizeBackup(d),
+          current,
+        },
         onConfirm: () => {
           if (request !== importRequest.current) return;
+          try {
+            if (localStorage.getItem(STORAGE + mode) !== snapshot) {
+              importRequest.current++;
+              setModal(null);
+              notify("当前空间数据已变化，请重新选择备份核对后恢复");
+              return;
+            }
+          } catch {
+            notify("无法读取当前存储，未恢复备份；请检查浏览器存储权限");
+            return;
+          }
           if (persist(d, true)) {
             setModal(null);
             const recorded = saveBackupMeta({
@@ -2388,6 +2433,14 @@ export default function App() {
           }
         />
       )}
+      {modal?.type === "import-preview" && (
+        <ImportPreview
+          preview={modal.preview}
+          mode={mode}
+          onConfirm={modal.onConfirm}
+          onClose={() => setModal(null)}
+        />
+      )}
       {modal?.type === "confirm" && (
         <Modal title={modal.title} onClose={() => setModal(null)}>
           <div className="confirm-body">
@@ -2411,6 +2464,131 @@ export default function App() {
         <Toast message={toast} modal={modal} onClose={() => setToast("")} />
       )}
     </div>
+  );
+}
+
+function ImportPreview({ preview, mode, onConfirm, onClose }) {
+  const target = mode === "demo" ? "演示空间" : "个人空间";
+  const { current, incoming } = preview;
+  const rows = [
+    ["orders", "订单数量", "场"],
+    ["partners", "合作伙伴", "位"],
+    ["venues", "常用场地", "处"],
+    ["dates", "拍摄日期范围", "date"],
+    ["amount", "拍摄费", "money"],
+    ["travelAmount", "报销车费", "money"],
+    ["payable", "应付合计", "money"],
+    ["depositPaid", "已付定金", "money"],
+    ["settlementPaid", "已付尾款", "money"],
+    ["paid", "已付合计", "money"],
+    ["balance", "待结金额", "money"],
+    ["unsettledOrders", "待结订单", "场"],
+  ];
+  const value = (summary, key, unit) => {
+    if (!summary) return "无法读取";
+    if (unit === "date")
+      return summary.dateFrom
+        ? `${summary.dateFrom} 至 ${summary.dateTo}`
+        : "暂无拍摄日期";
+    return unit === "money"
+      ? `¥ ${money(summary[key])}`
+      : `${money(summary[key])} ${unit}`;
+  };
+  return (
+    <Modal
+      title="恢复备份"
+      subtitle={`核对文件内容后，完整替换当前${target}。`}
+      onClose={onClose}
+      wide
+    >
+      <div className="import-preview-body">
+        <div className="import-file">
+          <FileText size={22} />
+          <div>
+            <h3>{preview.fileName}</h3>
+            <p>
+              {preview.sourceSpace} · 备份版本 {preview.version}
+              {preview.version === 1 ? "（兼容旧版）" : ""}
+            </p>
+            <p>
+              文件标注的导出时间：
+              {preview.exportedAt ? backupTime(preview.exportedAt) : "未记录"}
+            </p>
+          </div>
+        </div>
+        <div className="info-strip import-replace-note">
+          <Info size={17} />
+          <p>
+            确认后，当前{target}
+            的订单、付款记录、伙伴、场地和提醒设置将被文件内容完整替换。建议先保存当前备份。
+          </p>
+        </div>
+        {preview.sourceSpace === "演示空间" && mode === "personal" && (
+          <p className="import-caution">
+            这是演示空间导出的文件，请确认是否要恢复到个人空间。
+          </p>
+        )}
+        {!incoming.orders && !incoming.partners && !incoming.venues && (
+          <p className="import-caution">
+            备份中没有业务记录。确认恢复会清空当前空间的订单、伙伴和场地。
+          </p>
+        )}
+        {!current && (
+          <p className="import-caution">
+            当前空间数据无法读取，不能计算对比金额。建议先下载原始存储文件，再使用这份有效备份恢复。
+          </p>
+        )}
+        <table className="import-comparison" aria-label="备份与当前空间对比">
+          <thead>
+            <tr>
+              <th scope="col">核对项目</th>
+              <th scope="col">当前{target}</th>
+              <th scope="col">备份文件</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(([key, label, unit]) => (
+              <tr
+                key={key}
+                className={
+                  ["payable", "paid", "balance"].includes(key)
+                    ? "import-total"
+                    : ""
+                }
+              >
+                <th scope="row">{label}</th>
+                {[current, incoming].map((summary, index) => (
+                  <td key={index}>
+                    <span
+                      className={
+                        unit === "money" && summary?.[key] >= 100000000
+                          ? "import-large-money"
+                          : ""
+                      }
+                    >
+                      {value(summary, key, unit)}
+                    </span>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="import-accounting-note">
+          金额包含所有订单（含取消、拒绝的订单）。应付 = 拍摄费 + 车费；已付 =
+          定金 + 尾款，付款流水不会再重复累加。
+        </p>
+      </div>
+      <div className="modal-footer">
+        <button className="button" onClick={onClose}>
+          取消
+        </button>
+        <button className="button primary" onClick={onConfirm}>
+          <Upload size={16} />
+          确认恢复
+        </button>
+      </div>
+    </Modal>
   );
 }
 

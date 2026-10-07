@@ -32,6 +32,7 @@
 - 提醒含前 3 天、前 1 天、当天拍摄、未确认、未付定金、完成后未结清与改期取消。提醒在网页打开时计算；没有后台推送。
 - 演示和个人空间分离；同步同一浏览器的标签页，检测过期写入，避免覆盖其他页面已保存的数据。
 - 备份提醒按空间独立记录。「明天提醒」暂缓至北京时间次日零点；设置页显示最近发起完整备份导出的时间，恢复备份后建议重新导出。空白空间和演示空间不显示工作台备份提醒，CSV 与原始存储下载不更新完整备份记录。
+- 导入有效备份后，先并排核对当前空间与文件中的订单 / 伙伴 / 场地数量、拍摄日期范围、拍摄费、车费、定金、尾款和待结金额。汇总包含取消 / 拒绝订单的实际欠款，付款流水不重复计入。预览和取消均不改变数据；确认后才完整替换当前空间。
 
 ## 数据边界
 
@@ -40,6 +41,8 @@
 公开仓库只包含代码和虚构演示数据，不包含你的实际订单、测试浏览器数据或导出的备份。
 
 网页只能记录发起下载的时间，不能确认文件最终保存到了设备，请检查浏览器下载结果。提醒时间保存在本机独立记录中，不写入订单或 JSON 备份；清除这些记录或更换浏览器后，不会推测以前的导出时间。导出会读取并校验当前空间的最新存储；存储损坏、下载启动失败，或存储被移除但页面仍有记录时，不会把空备份记为成功导出。读取导入文件期间切换空间，会取消那次导入。
+
+恢复预览显示文件名及文件标注的来源、版本、导出时间。空备份会明确提示清空业务记录，演示文件恢复到个人空间时会提示来源；本机数据损坏，或存储缺失但页面仍有记录时，当前汇总显示「无法读取」，仍可用有效备份恢复。确认前如果当前存储发生变化，必须重新选择文件核对，避免覆盖预览之后的新记录。
 
 ## 开发
 
@@ -52,7 +55,7 @@ pnpm test
 pnpm build
 ```
 
-浏览器验收：安装 Playwright Chromium 后，启动 `pnpm dev --port 5188`，执行 `node scripts/qa.mjs`、`node scripts/regression.mjs`、`node scripts/mobile-orders.mjs`、`node scripts/payment-ledger.mjs`、`node scripts/duplicate-order.mjs` 与 `node scripts/backup-reminder.mjs`。可用 `QA_BROWSER_CHANNEL=msedge` 指定本机 Edge，否则使用 Playwright Chromium；`QA_BASE_URL` 可指定验收地址。脚本只操作独立测试浏览器，截图与备份仅写入忽略的 `test-results/`。
+浏览器验收：安装 Playwright Chromium 后，启动 `pnpm dev --port 5188`，执行 `node scripts/qa.mjs`、`node scripts/regression.mjs`、`node scripts/mobile-orders.mjs`、`node scripts/payment-ledger.mjs`、`node scripts/duplicate-order.mjs`、`node scripts/backup-reminder.mjs` 与 `node scripts/import-preview.mjs`。可用 `QA_BROWSER_CHANNEL=msedge` 指定本机 Edge，否则使用 Playwright Chromium；`QA_BASE_URL` 可指定验收地址。导入预览脚本还支持 `QA_PROXY_SERVER`，需要代理访问线上站点时可显式传入本机系统代理。脚本只操作独立测试浏览器，截图与备份仅写入忽略的 `test-results/`。
 
 GitHub Actions 在主分支推送后运行单元测试及生产构建，成功后发布到 GitHub Pages。相对资源路径和 hash 导航兼容仓库子路径。
 

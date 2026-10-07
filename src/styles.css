@@ -1957,6 +1957,110 @@ tbody tr:hover {
 .modal.wide {
   width: min(740px, calc(100% - 32px));
 }
+.import-preview-body {
+  padding: 24px 28px;
+}
+.import-file {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  background: #f1f6fb;
+  border-radius: 15px;
+  padding: 18px;
+  margin-bottom: 18px;
+}
+.import-file > svg {
+  flex-shrink: 0;
+  color: var(--sky);
+}
+.import-file > div {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.import-file h3 {
+  font-size: 14px;
+  font-weight: 550;
+  margin: 0 0 8px;
+}
+.import-file p {
+  color: #718581;
+  font-size: 11px;
+  line-height: 1.8;
+  margin: 0;
+}
+.import-replace-note > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.import-replace-note p {
+  margin: 0;
+}
+.import-caution {
+  padding: 13px 15px;
+  border-radius: 10px;
+  background: #fff4e7;
+  color: #89662d;
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 0 0 16px;
+}
+.import-comparison {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 12px;
+  white-space: normal;
+}
+.import-comparison th,
+.import-comparison td {
+  padding: 13px 12px;
+  text-align: right;
+  border-bottom: 1px solid #edf0e7;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+  font-size: inherit;
+}
+.import-comparison th:first-child {
+  text-align: left;
+  width: 28%;
+  color: #677460;
+  font-weight: 400;
+}
+.import-comparison thead th {
+  background: #f2f6fa;
+  color: #58766d;
+  font-weight: 500;
+}
+.import-comparison td:last-child,
+.import-comparison thead th:last-child {
+  background: #f6f8ed;
+}
+.import-comparison .import-total > * {
+  font-weight: 600;
+  color: #526b3d;
+}
+.import-accounting-note {
+  color: #7d8973;
+  font-size: 11px;
+  line-height: 1.9;
+  margin: 18px 0 0;
+}
+@media (max-width: 760px) {
+  .import-preview-body {
+    padding: 20px;
+  }
+  .import-comparison th,
+  .import-comparison td {
+    padding: 12px 6px;
+    font-size: 11px;
+  }
+  .import-large-money {
+    font-size: 10px;
+  }
+  .import-preview-body + .modal-footer button {
+    min-height: 44px;
+  }
+}
 .modal::backdrop {
   background: #273c4850;
   backdrop-filter: blur(5px);
