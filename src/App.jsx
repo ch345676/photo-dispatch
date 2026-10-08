@@ -75,6 +75,7 @@ import {
 } from "./backup.mjs";
 import { summarizeBackup } from "./import-preview.mjs";
 import { orderStatusActions, transitionOrderStatus } from "./order-status.mjs";
+import PaymentReport from "./PaymentReport.jsx";
 
 const NAV = [
   ["overview", "工作台", LayoutDashboard],
@@ -405,6 +406,7 @@ export default function App() {
       : "overview",
   );
   const [mobileMenu, setMobileMenu] = useState(false),
+    [financeView, setFinanceView] = useState("orders"),
     [modal, setModal] = useState(null),
     [toast, setToast] = useState(""),
     [query, setQuery] = useState(""),
@@ -515,6 +517,7 @@ export default function App() {
   }
   function navigate(p) {
     setPage(p);
+    setFinanceView("orders");
     location.hash = p;
     setMobileMenu(false);
     setQuery("");
@@ -1709,7 +1712,48 @@ export default function App() {
               </div>
             </>
           )}
-          {["orders", "finance"].includes(page) && (
+          {page === "finance" && (
+            <div
+              className="finance-view-switch"
+              role="group"
+              aria-label="结算统计口径"
+            >
+              <button
+                aria-pressed={financeView === "orders"}
+                className={financeView === "orders" ? "active" : ""}
+                onClick={() => setFinanceView("orders")}
+              >
+                按拍摄月份
+              </button>
+              <button
+                aria-pressed={financeView === "payments"}
+                className={financeView === "payments" ? "active" : ""}
+                onClick={() => setFinanceView("payments")}
+              >
+                按付款月份
+              </button>
+            </div>
+          )}
+          {page === "finance" && financeView === "payments" && (
+            <PaymentReport
+              key={mode}
+              data={data}
+              month={month}
+              onOpenOrder={(order) =>
+                setModal({ type: "detail", value: order })
+              }
+              onExport={(content, name) => {
+                try {
+                  download(content, name, "text/csv;charset=utf-8");
+                  notify("已导出当前筛选的付款明细");
+                } catch {
+                  notify("付款明细导出失败，请检查浏览器下载设置");
+                }
+              }}
+            />
+          )}
+          {(page === "orders" ||
+            (page === "finance" && financeView === "orders")) && (
             <>
               {page === "finance" && (
                 <>
@@ -1718,7 +1762,7 @@ export default function App() {
                     <Info size={16} />
                     已付金额 = 已付定金 + 已付尾款；待结金额 = 拍摄费用 +
                     报销车费 −
-                    已付金额。月度汇总不含取消、拒绝订单；其未付费用仍列入待结账。
+                    已付金额。月度汇总按拍摄月份，不含取消、拒绝订单；下方账单按独立筛选条件展示，取消后的未付费用仍列入待结账。
                   </div>
                 </>
               )}
