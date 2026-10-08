@@ -136,6 +136,7 @@ try {
   await close();
   await dialog("10 月 8 日安排").waitFor();
   await page.keyboard.press("Escape");
+  await page.locator("dialog[open]").waitFor({ state: "hidden" });
   assert.equal(await page.locator("dialog[open]").count(), 0);
   assert.equal(await raw(), before);
   console.log(
@@ -164,6 +165,9 @@ try {
     3,
   );
   await page.getByRole("button", { name: "记录当天沟通", exact: true }).click();
+  await page
+    .getByRole("button", { name: "沟通、状态与备注", exact: true })
+    .click();
   assert.equal(
     await page.getByLabel("拍摄日期 *", { exact: true }).inputValue(),
     "",
@@ -220,6 +224,9 @@ try {
       .getByRole("button", { name: "2026-10-08，3 场拍摄", exact: true })
       .click();
     await noOverflow();
+    await dialog("10 月 8 日安排").evaluate(async (e) => {
+      await Promise.all(e.getAnimations().map((a) => a.finished));
+    });
     const box = await dialog("10 月 8 日安排").boundingBox();
     assert.ok(box.x >= 0 && box.x + box.width <= width + 1);
     assert.ok(Math.abs(box.width - width) < 2, "手机展开层应完整覆盖底部宽度");
@@ -336,6 +343,9 @@ try {
     .click();
   await fresh.getByLabel("伙伴姓名").fill("日历新伙伴");
   await fresh.getByRole("button", { name: "保存伙伴", exact: true }).click();
+  await fresh
+    .getByRole("button", { name: "沟通、状态与备注", exact: true })
+    .click();
   assert.equal(
     await fresh.getByLabel("派单沟通日期 *", { exact: true }).inputValue(),
     "2026-10-02",

@@ -37,6 +37,7 @@ export function summarizeBackup(data) {
 
   return {
     orders: data.orders.length,
+    trash: (data.trash || []).length,
     partners: data.partners.length,
     venues: data.venues.length,
     ...Object.fromEntries(

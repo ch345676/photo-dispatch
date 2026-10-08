@@ -78,6 +78,10 @@ try {
       .waitFor();
   }
   async function assertDraft() {
+    await page
+      .getByRole("button", { name: "沟通、状态与备注", exact: true })
+      .click();
+    await page.getByRole("button", { name: "填写车费", exact: true }).click();
     assert.equal(await page.getByLabel("拍摄主题").inputValue(), "");
     assert.equal(
       await page.getByLabel("拍摄日期", { exact: false }).inputValue(),
@@ -139,11 +143,15 @@ try {
     true,
   );
   assert.deepEqual(await read(), data);
-  await page.getByRole("button", { name: "取消", exact: true }).click();
+  await page.getByRole("button", { name: "暂存并关闭", exact: true }).click();
   await page.getByRole("dialog", { name: "派单详情", exact: true }).waitFor();
   assert.deepEqual(await read(), data, "取消复制不修改原单");
 
   await copy();
+  await page
+    .getByRole("button", { name: "沟通、状态与备注", exact: true })
+    .click();
+  await page.getByRole("button", { name: "填写车费", exact: true }).click();
   await page.getByLabel("拍摄主题").fill("下一场婚礼");
   await page.getByLabel("拍摄日期").fill(source.shootDate);
   await page.getByRole("button", { name: "保存派单", exact: true }).click();
@@ -208,6 +216,9 @@ try {
     await page.setViewportSize({ width, height: 844 });
     await openSource();
     const button = page.getByRole("button", { name: "复制派单", exact: true });
+    await page.getByRole("dialog").evaluate(async (e) => {
+      await Promise.all(e.getAnimations().map((a) => a.finished));
+    });
     const box = await button.boundingBox();
     assert.ok(box.height >= 44 && box.x >= 0 && box.x + box.width <= width);
     await page.screenshot({

@@ -38,6 +38,7 @@ import {
   Archive,
   RefreshCw,
   Copy,
+  CarFront,
 } from "lucide-react";
 import {
   today,
@@ -66,6 +67,8 @@ import {
   recordPayment,
   voidPayment,
   revisePaymentBaseline,
+  travelState,
+  TRAVEL_STATES,
 } from "./domain.mjs";
 import {
   normalizeBackupMeta,
@@ -77,6 +80,17 @@ import { orderStatusActions, transitionOrderStatus } from "./order-status.mjs";
 import PaymentReport from "./PaymentReport.jsx";
 import { inspectBusinessStorage } from "./storage-guard.mjs";
 import ScheduleCalendar, { DayAgenda } from "./ScheduleCalendar.jsx";
+import QuickOrderForm from "./QuickOrderForm.jsx";
+import { withScheduleHistory, moveToTrash, restoreOrder } from "./workflow.mjs";
+import { parseDrafts, updateDrafts } from "./drafts.mjs";
+import {
+  PartnerStatement,
+  RecycleBin,
+  DraftList,
+  DispatchCopy,
+  TravelForm,
+} from "./WorkflowViews.jsx";
+import "./workflow.css";
 
 const NAV = [
   ["overview", "业务概览", LayoutDashboard],
@@ -96,7 +110,7 @@ const SECTIONS = [
   {
     label: "派单",
     icon: ClipboardList,
-    pages: ["orders", "reminders"],
+    pages: ["orders", "reminders", "drafts"],
     hint: "订单与待办提醒",
   },
   { label: "结算", icon: Wallet, pages: ["finance"], hint: "拍摄费与车费" },
@@ -109,17 +123,36 @@ const SECTIONS = [
   {
     label: "我的",
     icon: Settings,
-    pages: ["settings", "overview"],
+    pages: ["settings", "overview", "trash"],
     hint: "备份、设置与概览",
   },
 ];
 const pageTitle = (page) =>
   NAV.find((n) => n[0] === page)?.[1] ||
-  { settings: "数据与设置", reminders: "提醒中心" }[page];
+  {
+    settings: "数据与设置",
+    reminders: "提醒中心",
+    drafts: "派单草稿",
+    trash: "回收站",
+  }[page];
 const validPage = (page) =>
   SECTIONS.some((section) => section.pages.includes(page));
 const STORAGE = "shiguang-photo-v1-";
 const backupKey = (mode) => STORAGE + "backup-" + mode;
+const draftKey = (mode) => STORAGE + "drafts-" + mode;
+function readDraftState(mode) {
+  let raw = null;
+  try {
+    raw = localStorage.getItem(draftKey(mode));
+    return { raw, items: parseDrafts(raw), error: "" };
+  } catch {
+    return {
+      raw,
+      items: [],
+      error: "草稿无法读取，已保留原文。请下载草稿原文留存后处理。",
+    };
+  }
+}
 function readBackupMeta(mode) {
   try {
     return normalizeBackupMeta(
@@ -198,7 +231,7 @@ function readInitial() {
 function Badge({ children, tone }) {
   const cls =
     tone ||
-    (/未付|未结|待确认|部分/.test(children)
+    (/未付|未结|待确认|部分|待核|待补/.test(children)
       ? "amber"
       : /取消|拒绝|改期|无需/.test(children)
         ? "gray"
@@ -217,7 +250,12 @@ function Toast({ message, onClose, modal }) {
   }, [message, modal]);
   return createPortal(
     <div className="toast" role="status">
-      <Info size={18} />
+      {/已保存|已复制|已恢复|已更新|已导出|已移入|已删除/.test(message) &&
+      !/失败|未能|无法/.test(message) ? (
+        <CheckCircle2 size={18} />
+      ) : (
+        <Info size={18} />
+      )}
       {message}
       <button aria-label="关闭提示" onClick={onClose}>
         <X size={15} />
@@ -259,6 +297,29 @@ function Modal({
   className = "",
 }) {
   const ref = useRef(null);
+  const closing = useRef(false);
+  async function requestClose() {
+    if (closing.current) return;
+    closing.current = true;
+    if (
+      !window.matchMedia("(prefers-reduced-motion: reduce)").matches &&
+      ref.current
+    ) {
+      try {
+        await ref.current.animate(
+          [
+            { opacity: 1, transform: "translateY(0)" },
+            { opacity: 0, transform: "translateY(14px)" },
+          ],
+          { duration: 130, easing: "ease-in" },
+        ).finished;
+      } catch {
+        /* Unmounted while closing. */
+      }
+    }
+    onClose();
+    closing.current = false;
+  }
   useEffect(() => {
     const d = ref.current;
     d.showModal();
@@ -274,10 +335,10 @@ function Modal({
       className={"modal " + (wide ? "wide " : "") + className}
       onCancel={(e) => {
         e.preventDefault();
-        onClose();
+        requestClose();
       }}
       onClick={(e) => {
-        if (e.target === ref.current) onClose();
+        if (e.target === ref.current) requestClose();
       }}
       aria-label={title}
     >
@@ -286,7 +347,11 @@ function Modal({
           <h2>{title}</h2>
           {subtitle && <p>{subtitle}</p>}
         </div>
-        <button className="icon-button" onClick={onClose} aria-label="关闭">
+        <button
+          className="icon-button"
+          onClick={requestClose}
+          aria-label="关闭"
+        >
           <X size={20} />
         </button>
       </div>
@@ -456,6 +521,13 @@ export default function App() {
     [month, setMonth] = useState(today().slice(0, 7)),
     [dateField, setDateField] = useState("shootDate");
   const [calendarField, setCalendarField] = useState("shootDate");
+  const [draftState, setDraftState] = useState(() =>
+    readDraftState(initial.mode),
+  );
+  const draftSnapshot = useRef(draftState.raw);
+  const activeModal = useRef(modal);
+  activeModal.current = modal;
+  const [statementPartner, setStatementPartner] = useState("");
   const [filters, setFilters] = useState({
       from: "",
       to: "",
@@ -473,6 +545,138 @@ export default function App() {
   const importRequest = useRef(0);
   function notify(s) {
     setToast(s);
+  }
+  async function copyText(value) {
+    try {
+      await navigator.clipboard.writeText(value);
+      notify("已复制，可粘贴到微信核对后发送");
+    } catch {
+      notify("浏览器未允许复制，请选中文案后手动复制");
+    }
+  }
+  function writeDraft(id, item) {
+    try {
+      const raw = localStorage.getItem(draftKey(mode));
+      const next = updateDrafts(
+        raw,
+        draftSnapshot.current,
+        id,
+        item && { ...item, updatedAt: new Date().toISOString() },
+      );
+      localStorage.setItem(draftKey(mode), next);
+      draftSnapshot.current = next;
+      setDraftState({ raw: next, items: parseDrafts(next), error: "" });
+      return true;
+    } catch (error) {
+      if (["QuotaExceededError", "SecurityError"].includes(error.name))
+        return "浏览器无法保存草稿，请保留输入内容并检查存储空间或权限";
+      return error.message || "草稿保存失败，请先正式保存或保留输入内容";
+    }
+  }
+  function resumeDraft(item) {
+    const current = data.orders.find((o) => o.id === item.order.id);
+    if (
+      item.kind === "edit" &&
+      (!current || JSON.stringify(current) !== item.original)
+    ) {
+      notify(
+        "原订单已变化或移入回收站，这份草稿不能覆盖新记录；可下载草稿原文保留输入内容",
+      );
+      return;
+    }
+    if (
+      item.kind === "new" &&
+      (current || data.trash?.some((e) => e.order.id === item.order.id))
+    ) {
+      notify("此草稿对应的订单已保存，请删除多余草稿后查看订单");
+      return;
+    }
+    draftSnapshot.current = draftState.raw;
+    setModal({
+      type: "order",
+      value: item.order,
+      draftReason: item.reason,
+      copySource: item.copySource,
+    });
+  }
+  function editOrder(order) {
+    const latest = readDraftState(mode);
+    draftSnapshot.current = latest.raw;
+    setDraftState(latest);
+    const draft = latest.items.find((d) => d.order.id === order.id);
+    if (
+      draft &&
+      draft.kind === "edit" &&
+      draft.original === JSON.stringify(order)
+    ) {
+      setModal({
+        type: "order",
+        value: draft.order,
+        draftReason: draft.reason,
+        copySource: draft.copySource,
+      });
+      notify("已接续这场派单的本地草稿");
+    } else if (draft) {
+      navigate("drafts");
+      setModal(null);
+      notify("此订单有旧草稿，请先下载保留或删除旧草稿，再编辑最新订单");
+    } else setModal({ type: "order", value: order });
+  }
+  function removeDraft(item) {
+    setModal({
+      type: "confirm",
+      title: "删除这份草稿？",
+      message: "仅删除未正式保存的输入，不影响订单。",
+      action: "删除草稿",
+      danger: true,
+      onConfirm: () => {
+        const result = writeDraft(item.order.id, null);
+        if (result === true) {
+          setModal(null);
+          notify("草稿已删除");
+        } else notify(result);
+      },
+    });
+  }
+  function exportDrafts() {
+    try {
+      const raw = localStorage.getItem(draftKey(mode));
+      if (raw === null) {
+        notify("当前空间没有草稿原文");
+        return;
+      }
+      download(raw, `拾光草稿原文-${mode}-${today()}.json`, "application/json");
+    } catch {
+      notify("草稿原文下载失败，请检查浏览器存储和下载权限");
+    }
+  }
+  function recoverOrder(id) {
+    try {
+      if (persist(restoreOrder(data, id)))
+        notify("派单已恢复，付款和改期记录一并保留");
+    } catch (error) {
+      notify(error.message);
+    }
+  }
+  function eraseOrder(entry) {
+    setModal({
+      type: "confirm",
+      title: "永久删除这场派单？",
+      message: `「${entry.order.title}」及付款、改期记录将无法恢复。建议先导出完整备份。`,
+      action: "永久删除",
+      danger: true,
+      onConfirm: () => {
+        if (
+          persist({
+            ...data,
+            trash: data.trash.filter((e) => e.order.id !== entry.order.id),
+          })
+        ) {
+          setModal(null);
+          notify("回收站记录已永久删除");
+        }
+      },
+    });
   }
   useEffect(() => {
     if (!toast) return;
@@ -502,6 +706,13 @@ export default function App() {
   }, []);
   useEffect(() => {
     const h = (e) => {
+      if (e.key === draftKey(mode) || e.key === null) {
+        const next = readDraftState(mode);
+        setDraftState(next);
+        // An open form keeps its snapshot so another tab cannot overwrite it silently.
+        if (activeModal.current?.type !== "order")
+          draftSnapshot.current = next.raw;
+      }
       if (e.key === backupKey(mode) || e.key === null) {
         setBackupMeta(readBackupMeta(mode));
         setBackupNow(Date.now());
@@ -667,6 +878,9 @@ export default function App() {
       setData(nextData);
       setHasPageSnapshot(!nextError);
       setMode(next);
+      const nextDrafts = readDraftState(next);
+      setDraftState(nextDrafts);
+      draftSnapshot.current = nextDrafts.raw;
       setBackupMeta(readBackupMeta(next));
       setBackupNow(Date.now());
       setStorageError(nextError);
@@ -747,8 +961,11 @@ export default function App() {
               active(o) &&
               o.executionStatus === "待拍摄") ||
             (tab === "finished" && o.executionStatus === "已完成") ||
-            (tab === "unpaid" && balance(o) > 0) ||
-            (tab === "settled" && balance(o) === 0))
+            (tab === "unpaid" &&
+              (balance(o) > 0 || travelState(o) === "pending")) ||
+            (tab === "settled" &&
+              balance(o) === 0 &&
+              travelState(o) !== "pending"))
         );
       })
       .sort(
@@ -841,6 +1058,7 @@ export default function App() {
       "地址",
       "拍摄费用",
       "报销车费",
+      "车费状态",
       "应付合计",
       "车费说明",
       "约定定金",
@@ -880,6 +1098,7 @@ export default function App() {
         o.address,
         o.amount,
         o.travelAmount || 0,
+        TRAVEL_STATES[travelState(o)],
         payable(o),
         o.travelNote || "",
         o.depositRequired,
@@ -977,7 +1196,7 @@ export default function App() {
       notify("导入失败：" + err.message);
     }
   }
-  function saveOrder(o, intent = "edit") {
+  function saveOrder(o, intent = "edit", reason = "") {
     const current = data.orders.find((v) => v.id === o.id);
     if (current && current.updatedAt !== o.updatedAt) {
       notify("这场派单已被更新，请重新打开后编辑");
@@ -985,10 +1204,28 @@ export default function App() {
     }
     if (
       current?.paymentLedger &&
-      intent === "edit" &&
+      ["edit", "travel"].includes(intent) &&
       JSON.stringify(current.paymentLedger) !== JSON.stringify(o.paymentLedger)
     ) {
       notify("付款记录请通过登记、撤销或更正初始累计修改");
+      return false;
+    }
+    if (
+      current &&
+      JSON.stringify(current.scheduleHistory || []) !==
+        JSON.stringify(o.scheduleHistory || [])
+    ) {
+      notify("改期历史不能直接修改，请重新打开订单");
+      return false;
+    }
+    if (!current && data.trash?.some((e) => e.order.id === o.id)) {
+      notify("这场派单已在回收站，请先恢复订单");
+      return false;
+    }
+    try {
+      o = withScheduleHistory(current, o, reason);
+    } catch (error) {
+      notify(error.message);
       return false;
     }
     const err = validateOrder(o, data.partners);
@@ -1017,22 +1254,6 @@ export default function App() {
       );
       return false;
     }
-    if (current && current.shootDate !== o.shootDate)
-      o = {
-        ...o,
-        note: [
-          o.note,
-          "改期记录：" +
-            current.shootDate +
-            " → " +
-            o.shootDate +
-            "（记录于 " +
-            today() +
-            "）",
-        ]
-          .filter(Boolean)
-          .join("\n"),
-      };
     const saved = { ...o, updatedAt: new Date().toISOString() };
     const next = {
       ...data,
@@ -1042,7 +1263,14 @@ export default function App() {
     };
     if (persist(next)) {
       setModal(null);
-      notify("派单已保存");
+      const cleared = intent === "edit" ? writeDraft(o.id, null) : true;
+      notify(
+        cleared === true
+          ? intent === "travel"
+            ? "车费已更新，应付与待结金额已同步"
+            : "派单已保存"
+          : "派单已保存，但旧草稿未能清理，请在草稿列表核对",
+      );
       return true;
     }
     return false;
@@ -1080,16 +1308,18 @@ export default function App() {
   function deleteOrder(o) {
     setModal({
       type: "confirm",
-      title: "删除这场派单？",
-      message: `「${o.title}」及其付款记录将被删除，此操作无法撤销。`,
-      action: "确认删除",
+      title: "将这场派单移入回收站？",
+      message: `「${o.title}」将从日历和当前账目移除，付款与改期记录一起保留，可在我的 → 回收站恢复。`,
+      action: "移入回收站",
       danger: true,
       onConfirm: () => {
-        if (
-          persist({ ...data, orders: data.orders.filter((v) => v.id !== o.id) })
-        ) {
-          setModal(null);
-          notify("派单已删除");
+        try {
+          if (persist(moveToTrash(data, o))) {
+            setModal(null);
+            notify("派单已移入回收站，可在我的栏恢复");
+          }
+        } catch (error) {
+          notify(error.message);
         }
       },
     });
@@ -1544,7 +1774,7 @@ export default function App() {
             <span className="profile-avatar small-profile">拾</span>
           </div>
         </header>
-        <main>
+        <main key={page} className="motion-page">
           {section.pages.length > 1 && (
             <nav className="section-tabs" aria-label={`${section.label}分类`}>
               {section.pages.map((id) => (
@@ -1577,6 +1807,8 @@ export default function App() {
                         venues: "LOCATIONS",
                         reminders: "REMINDERS",
                         settings: "YOUR WORKSPACE",
+                        drafts: "SAVE YOUR THOUGHTS",
+                        trash: "RECOVER YOUR RECORDS",
                       }[page]}
                 </div>
                 <h1>
@@ -1593,6 +1825,8 @@ export default function App() {
                         venues: "记录每个目的地，细化到每一间宴会厅。",
                         reminders: "那些需要多留意一下的事情，都在这里。",
                         settings: "数据留在你的浏览器，工作节奏由你掌握。",
+                        drafts: "没填完的安排，留在这里继续。",
+                        trash: "找回误删的订单，以及每一笔付款记录。",
                       }[page]}
                 </p>
               </div>
@@ -1610,9 +1844,14 @@ export default function App() {
                     />
                   </label>
                 )}
-                {!["settings", "reminders", "partners", "venues"].includes(
-                  page,
-                ) && (
+                {![
+                  "settings",
+                  "reminders",
+                  "partners",
+                  "venues",
+                  "drafts",
+                  "trash",
+                ].includes(page) && (
                   <button className="button primary" onClick={() => newOrder()}>
                     <Plus size={18} />
                     新建派单
@@ -1816,6 +2055,7 @@ export default function App() {
           {page === "calendar" && (
             <ScheduleCalendar
               orders={data.orders}
+              partners={data.partners}
               selected={selected}
               month={month}
               setMonth={setMonth}
@@ -1848,6 +2088,13 @@ export default function App() {
               >
                 按付款月份
               </button>
+              <button
+                aria-pressed={financeView === "statement"}
+                className={financeView === "statement" ? "active" : ""}
+                onClick={() => setFinanceView("statement")}
+              >
+                伙伴对账
+              </button>
             </div>
           )}
           {page === "finance" && financeView === "payments" && (
@@ -1864,6 +2111,24 @@ export default function App() {
                   notify("已导出当前筛选的付款明细");
                 } catch {
                   notify("付款明细导出失败，请检查浏览器下载设置");
+                }
+              }}
+            />
+          )}
+          {page === "finance" && financeView === "statement" && (
+            <PartnerStatement
+              key={mode + statementPartner}
+              data={data}
+              month={month}
+              initialPartner={statementPartner}
+              onOpen={(order) => setModal({ type: "detail", value: order })}
+              onCopy={copyText}
+              onDownload={(content, name, type) => {
+                try {
+                  download(content, name, type);
+                  notify("对账单已导出");
+                } catch {
+                  notify("导出失败，请检查浏览器下载设置");
                 }
               }}
             />
@@ -2000,9 +2265,13 @@ export default function App() {
                       [
                         "settlement",
                         "结算状态",
-                        ["未结账", "部分结账", "已结账", "无需结账"].map(
-                          (v) => [v, v],
-                        ),
+                        [
+                          "未结账",
+                          "部分结账",
+                          "已结账",
+                          "无需结账",
+                          "待核车费",
+                        ].map((v) => [v, v]),
                       ],
                     ].map(([key, label, values]) => (
                       <Field label={label} key={key}>
@@ -2148,6 +2417,16 @@ export default function App() {
                           onClick={() => setPartnerView(p.id)}
                         >
                           查看全部派单 <ArrowUpRight size={16} />
+                        </button>
+                        <button
+                          className="partner-open"
+                          onClick={() => {
+                            navigate("finance");
+                            setStatementPartner(p.id);
+                            setFinanceView("statement");
+                          }}
+                        >
+                          查看伙伴对账 <Wallet size={16} />
                         </button>
                       </article>
                     );
@@ -2442,6 +2721,24 @@ export default function App() {
               </section>
             </div>
           )}
+          {page === "drafts" && (
+            <DraftList
+              drafts={draftState.items}
+              error={draftState.error}
+              onResume={resumeDraft}
+              onRemove={removeDraft}
+              onRaw={exportDrafts}
+            />
+          )}
+          {page === "trash" && (
+            <RecycleBin
+              entries={data.trash || []}
+              partners={data.partners}
+              onRestore={(entry) => recoverOrder(entry.order.id)}
+              onRemove={eraseOrder}
+              onExport={exportData}
+            />
+          )}
           <footer className="page-footer">
             <span>
               <Camera size={13} />
@@ -2500,21 +2797,45 @@ export default function App() {
         </Modal>
       )}
       {modal?.type === "order" && (
-        <OrderForm
+        <QuickOrderForm
+          key={mode + modal.value.id}
+          Modal={Modal}
+          Field={Field}
           order={modal.value}
           copySource={modal.copySource}
           data={data}
-          onSave={saveOrder}
+          draftReason={modal.draftReason || ""}
+          onDraft={(item) => writeDraft(item.order.id, item)}
+          onDraftExport={(item) => {
+            try {
+              download(
+                JSON.stringify(
+                  {
+                    version: 1,
+                    items: [{ ...item, updatedAt: new Date().toISOString() }],
+                  },
+                  null,
+                  2,
+                ),
+                `拾光未保存输入-${mode}-${today()}.json`,
+              );
+              notify("当前输入已发起下载，请检查下载文件");
+            } catch {
+              notify("下载失败，当前输入仍保留在页面中");
+            }
+          }}
+          onSave={(o, reason) => saveOrder(o, "edit", reason)}
           onClose={() => {
             const source = data.orders.find(
               (o) => o.id === modal.copySource?.id,
             );
             setModal(source ? { type: "detail", value: source } : null);
           }}
-          onAddPartner={(draft) =>
+          onAddPartner={(draft, reason) =>
             setModal({
               type: "partner",
               pendingOrder: draft,
+              draftReason: reason,
               copySource: modal.copySource,
             })
           }
@@ -2528,12 +2849,12 @@ export default function App() {
           partner={partner(modal.value.partnerId)}
           onClose={() => setModal(modal.returnToDay ? { type: "day" } : null)}
           onEdit={() =>
-            setModal({
-              type: "order",
-              value:
-                data.orders.find((o) => o.id === modal.value.id) || modal.value,
-            })
+            editOrder(
+              data.orders.find((o) => o.id === modal.value.id) || modal.value,
+            )
           }
+          onShare={() => setModal({ type: "share", value: modal.value })}
+          onTravel={() => setModal({ type: "travel", value: modal.value })}
           onDelete={() => deleteOrder(modal.value)}
           onStatus={(action) => {
             const order = data.orders.find((o) => o.id === modal.value.id);
@@ -2570,6 +2891,25 @@ export default function App() {
                 data.orders.find((o) => o.id === modal.value.id) || modal.value,
             })
           }
+        />
+      )}
+      {modal?.type === "share" && (
+        <DispatchCopy
+          Modal={Modal}
+          order={modal.value}
+          partner={partner(modal.value.partnerId)}
+          onClose={() => setModal({ type: "detail", value: modal.value })}
+          onCopy={copyText}
+        />
+      )}
+      {modal?.type === "travel" && (
+        <TravelForm
+          Modal={Modal}
+          Field={Field}
+          order={modal.value}
+          partners={data.partners}
+          onClose={() => setModal({ type: "detail", value: modal.value })}
+          onSave={(o) => saveOrder(o, "travel")}
         />
       )}
       {modal?.type === "order-status" && (
@@ -2613,6 +2953,7 @@ export default function App() {
                     type: "order",
                     value: modal.pendingOrder,
                     copySource: modal.copySource,
+                    draftReason: modal.draftReason,
                   }
                 : null,
             )
@@ -2631,6 +2972,7 @@ export default function App() {
                   ? {
                       type: "order",
                       copySource: modal.copySource,
+                      draftReason: modal.draftReason,
                       value: {
                         ...(modal.pendingOrder || blankOrder(selected)),
                         partnerId: p.id,
@@ -2645,8 +2987,11 @@ export default function App() {
             modal.value
               ? () => {
                   const p = modal.value;
-                  if (data.orders.some((o) => o.partnerId === p.id)) {
-                    notify("该伙伴已有派单记录，不能删除");
+                  if (
+                    data.orders.some((o) => o.partnerId === p.id) ||
+                    data.trash?.some((e) => e.order.partnerId === p.id)
+                  ) {
+                    notify("该伙伴在订单或回收站中已有派单记录，不能删除");
                     return;
                   }
                   setModal({
@@ -2751,6 +3096,7 @@ function ImportPreview({ preview, mode, onConfirm, onClose }) {
   const { current, incoming } = preview;
   const rows = [
     ["orders", "订单数量", "场"],
+    ["trash", "回收站订单", "场"],
     ["partners", "合作伙伴", "位"],
     ["venues", "常用场地", "处"],
     ["dates", "拍摄日期范围", "date"],
@@ -2799,7 +3145,7 @@ function ImportPreview({ preview, mode, onConfirm, onClose }) {
           <Info size={17} />
           <p>
             确认后，当前{target}
-            的订单、付款记录、伙伴、场地和提醒设置将被文件内容完整替换。建议先保存当前备份。
+            的订单、回收站、付款记录、伙伴、场地和提醒设置将被文件内容完整替换。草稿仍独立保留。建议先保存当前备份。
           </p>
         </div>
         {preview.sourceSpace === "演示空间" && mode === "personal" && (
@@ -2871,342 +3217,14 @@ function ImportPreview({ preview, mode, onConfirm, onClose }) {
   );
 }
 
-function OrderForm({ order, copySource, data, onSave, onClose, onAddPartner }) {
-  const [o, setO] = useState({ ...order });
-  const set = (k, v) =>
-    setO((prev) => ({
-      ...prev,
-      [k]: v,
-      ...(k === "dispatchStatus" && v === "已取消"
-        ? { executionStatus: "已取消" }
-        : {}),
-    }));
-  const venue = data.venues.find(
-    (v) => v.city === o.city && v.name === o.venue,
-  );
-  const p = data.partners.find((p) => p.id === o.partnerId);
-  return (
-    <Modal
-      title={
-        copySource
-          ? "复制为新派单"
-          : data.orders.some((x) => x.id === o.id)
-            ? "编辑派单"
-            : "安排一场新的拍摄"
-      }
-      subtitle="从沟通到交付，把重要的细节记下来。"
-      onClose={onClose}
-      wide
-    >
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          onSave(o);
-        }}
-      >
-        <div className="form-body">
-          {copySource && (
-            <div className="info-strip copy-order-hint">
-              <strong>
-                沿用「{copySource.title}」的伙伴、地点、时段和费用约定
-              </strong>
-              <p>
-                请填写新主题和拍摄日期，并核对沟通日期。车费、付款与历史备注已清空，状态重置为待确认、待拍摄。
-              </p>
-            </div>
-          )}
-          <div className="form-section-title">
-            <span>01</span>拍摄与派单
-          </div>
-          <div className="form-grid">
-            <Field label="拍摄主题 *" span>
-              <input
-                required
-                maxLength={120}
-                value={o.title}
-                onChange={(e) => set("title", e.target.value)}
-                placeholder="例如：林先生 & 苏小姐婚礼"
-              />
-            </Field>
-            <Field label="单子类型">
-              <select
-                value={o.type}
-                onChange={(e) => set("type", e.target.value)}
-              >
-                {TYPES.map((v) => (
-                  <option key={v}>{v}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="拍摄日期 *">
-              <input
-                required
-                type="date"
-                value={o.shootDate}
-                onChange={(e) => set("shootDate", e.target.value)}
-              />
-            </Field>
-            <Field label="开始时间 *">
-              <input
-                required
-                type="time"
-                value={o.startTime}
-                onChange={(e) => set("startTime", e.target.value)}
-              />
-            </Field>
-            <Field label="结束时间 *">
-              <input
-                required
-                type="time"
-                value={o.endTime}
-                onChange={(e) => set("endTime", e.target.value)}
-              />
-            </Field>
-            <Field label="派单沟通日期 *">
-              <input
-                required
-                type="date"
-                value={o.communicatedDate}
-                onChange={(e) => set("communicatedDate", e.target.value)}
-              />
-            </Field>
-            <Field label="合作伙伴 *">
-              <select
-                required
-                value={o.partnerId}
-                onChange={(e) => set("partnerId", e.target.value)}
-              >
-                <option value="">请选择伙伴</option>
-                {data.partners.map((p) => (
-                  <option value={p.id} key={p.id}>
-                    {p.name} · {p.role}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <div className="field span2">
-              <div className="partner-form-hint">
-                <span>
-                  <Phone size={13} />
-                  {p?.phone || "选择伙伴后显示联系方式"}
-                </span>
-                <button
-                  type="button"
-                  className="text-button"
-                  onClick={() => onAddPartner(o)}
-                >
-                  <Plus size={13} />
-                  添加伙伴
-                </button>
-              </div>
-            </div>
-          </div>
-          <div className="form-section-title">
-            <span>02</span>拍摄地点
-          </div>
-          <div className="form-grid">
-            <Field label="城市 *">
-              <input
-                required
-                value={o.city}
-                maxLength={40}
-                onChange={(e) => set("city", e.target.value)}
-              />
-            </Field>
-            <Field label="酒店 / 场地 *">
-              <input
-                list="venues"
-                required
-                value={o.venue}
-                maxLength={100}
-                onChange={(e) => {
-                  const v = data.venues.find(
-                    (v) => v.city === o.city && v.name === e.target.value,
-                  );
-                  setO({
-                    ...o,
-                    venue: e.target.value,
-                    ...(v
-                      ? { city: v.city, address: v.address, hall: "" }
-                      : {}),
-                  });
-                }}
-                placeholder="选择或填写场地"
-              />
-              <datalist id="venues">
-                {data.venues
-                  .filter((v) => v.city === o.city)
-                  .map((v) => (
-                    <option key={v.id} value={v.name}>
-                      {v.city}
-                    </option>
-                  ))}
-              </datalist>
-            </Field>
-            <Field label="展厅 / 宴会厅 *">
-              <input
-                list="halls"
-                required
-                value={o.hall}
-                maxLength={100}
-                onChange={(e) => set("hall", e.target.value)}
-                placeholder="例如：3 楼 · 水晶厅"
-              />
-              <datalist id="halls">
-                {venue?.halls.map((h) => (
-                  <option key={h}>{h}</option>
-                ))}
-              </datalist>
-            </Field>
-            <Field label="详细地址">
-              <input
-                value={o.address}
-                maxLength={240}
-                onChange={(e) => set("address", e.target.value)}
-                placeholder="详细到门牌号"
-              />
-            </Field>
-          </div>
-          <div className="form-section-title">
-            <span>03</span>费用与付款 <small>单位：元</small>
-          </div>
-          <div className="form-grid">
-            {[
-              ["amount", "拍摄费用 *"],
-              ["travelAmount", "报销车费（无需填 0）"],
-              ["depositRequired", "约定定金（0 表示无需）"],
-              ["depositPaid", "已付定金"],
-              ["settlementPaid", "已付尾款（不含定金）"],
-            ].map(([key, label]) => (
-              <Field label={label} key={key}>
-                <input
-                  type="number"
-                  required
-                  min="0"
-                  max={key === "settlementPaid" ? "200000000" : "100000000"}
-                  step="0.01"
-                  readOnly={
-                    !!o.paymentLedger &&
-                    ["depositPaid", "settlementPaid"].includes(key)
-                  }
-                  value={o[key]}
-                  onChange={(e) =>
-                    set(
-                      key,
-                      e.target.value === "" ? "" : Number(e.target.value),
-                    )
-                  }
-                />
-              </Field>
-            ))}
-            <Field label="车费说明" span>
-              <input
-                value={o.travelNote || ""}
-                maxLength={500}
-                onChange={(e) => set("travelNote", e.target.value)}
-                placeholder="例如：往返打车 120 元，已核对车票"
-              />
-            </Field>
-            <Field label="定金支付日期">
-              <input
-                type="date"
-                required={o.depositPaid > 0}
-                readOnly={!!o.paymentLedger}
-                value={o.depositDate}
-                onChange={(e) => set("depositDate", e.target.value)}
-              />
-            </Field>
-            <Field label="尾款支付日期">
-              <input
-                type="date"
-                required={o.settlementPaid > 0}
-                readOnly={!!o.paymentLedger}
-                value={o.settlementDate}
-                onChange={(e) => set("settlementDate", e.target.value)}
-              />
-            </Field>
-          </div>
-          {o.paymentLedger && (
-            <div className="info-strip ledger-edit-hint">
-              <Info size={15} />
-              已付金额及日期由付款记录自动汇总。新增付款、撤销或更正初始累计，请返回派单详情操作。
-            </div>
-          )}
-          <div className="form-total">
-            <span>
-              应付合计 <strong>¥ {money(payable(o))}</strong>
-            </span>
-            <span>
-              已付合计 <strong>¥ {money(paid(o))}</strong>
-            </span>
-            <span>
-              待结金额 <strong>¥ {money(balance(o))}</strong>
-            </span>
-          </div>
-          <div className="form-section-title">
-            <span>04</span>状态与备注
-          </div>
-          <div className="form-grid">
-            <Field label="派单状态">
-              <select
-                value={o.dispatchStatus}
-                onChange={(e) => set("dispatchStatus", e.target.value)}
-              >
-                {DISPATCH.map((v) => (
-                  <option key={v}>{v}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="执行状态">
-              <select
-                value={o.executionStatus}
-                onChange={(e) => set("executionStatus", e.target.value)}
-              >
-                {EXECUTION.map((v) => (
-                  <option key={v}>{v}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="拍摄备注" span>
-              <textarea
-                rows={2}
-                value={o.note}
-                maxLength={2000}
-                onChange={(e) => set("note", e.target.value)}
-                placeholder="到场时间、机位要求、联系人等"
-              />
-            </Field>
-            <Field label="结算备注" span>
-              <textarea
-                rows={2}
-                value={o.paymentNote}
-                maxLength={2000}
-                onChange={(e) => set("paymentNote", e.target.value)}
-                placeholder="付款方式、收款确认等"
-              />
-            </Field>
-          </div>
-        </div>
-        <div className="modal-footer">
-          <button type="button" className="button" onClick={onClose}>
-            取消
-          </button>
-          <button type="submit" className="button primary">
-            <Check size={16} />
-            保存派单
-          </button>
-        </div>
-      </form>
-    </Modal>
-  );
-}
-
 function OrderDetail({
   order: o,
   partner: p,
   onClose,
   onEdit,
   onCopy,
+  onShare,
+  onTravel,
   onDelete,
   onPay,
   onVoid,
@@ -3245,6 +3263,10 @@ function OrderDetail({
             <Copy size={15} />
             复制派单
           </button>
+          <button className="button" onClick={onShare}>
+            <Copy size={15} />
+            微信派单信息
+          </button>
         </div>
         <section className="order-progress" aria-label="派单进度">
           <div>
@@ -3261,7 +3283,9 @@ function OrderDetail({
                   : o.executionStatus === "已完成"
                     ? balance(o) > 0
                       ? `仍有 ¥ ${money(balance(o))} 待结，可继续登记付款。`
-                      : "这场拍摄已完成，费用已无待结余额。"
+                      : travelState(o) === "pending"
+                        ? "已付清当前已录金额，车费仍待补录 / 核对。"
+                        : "这场拍摄已完成，费用已无待结余额。"
                     : "如需重新安排，请编辑派单并核对日期与伙伴。"}
             </p>
           </div>
@@ -3325,6 +3349,22 @@ function OrderDetail({
             <strong>¥ {money(balance(o))}</strong>
           </div>
         </div>
+        <div
+          className={
+            "travel-review " + (travelState(o) === "pending" ? "pending" : "")
+          }
+        >
+          <span>
+            <CarFront size={18} />
+            {TRAVEL_STATES[travelState(o)]}
+            {travelState(o) === "pending" && (
+              <small>当前金额尚未最终确定</small>
+            )}
+          </span>
+          <button className="button" onClick={onTravel}>
+            核对车费
+          </button>
+        </div>
         <div className="payment-lines">
           <p>
             <span>拍摄费用</span>
@@ -3350,6 +3390,22 @@ function OrderDetail({
           </p>
         </div>
         <PaymentHistory order={o} onVoid={onVoid} onBaseline={onBaseline} />
+        {o.scheduleHistory?.length > 0 && (
+          <section className="schedule-history" aria-label="改期历史">
+            <h3>改期历史 · {o.scheduleHistory.length} 次</h3>
+            {[...o.scheduleHistory].reverse().map((entry) => (
+              <article key={entry.id}>
+                <small>{backupTime(entry.recordedAt)}</small>
+                <p>
+                  {entry.from.date} {entry.from.start}–{entry.from.end}
+                  <ArrowRight size={14} />
+                  {entry.to.date} {entry.to.start}–{entry.to.end}
+                </p>
+                <strong>{entry.reason}</strong>
+              </article>
+            ))}
+          </section>
+        )}
         {o.note && (
           <div className="detail-note">
             <h4>拍摄备注</h4>
@@ -3766,6 +3822,7 @@ function BaselineForm({ order, onSave, onClose }) {
   );
 }
 function PaymentForm({ order, onSave, onClose }) {
+  const [travelAcknowledged, setTravelAcknowledged] = useState(false);
   const [kind, setKind] = useState(
       order.depositPaid < order.depositRequired ? "deposit" : "settlement",
     ),
@@ -3787,6 +3844,14 @@ function PaymentForm({ order, onSave, onClose }) {
           e.preventDefault();
           const n = Number(amount);
           if (!Number.isFinite(n) || n <= 0 || n > remaining) return;
+          if (
+            travelState(order) === "pending" &&
+            Math.round(n * 100) === Math.round(balance(order) * 100) &&
+            !travelAcknowledged
+          ) {
+            setError("请确认车费仍待核对；本次只付清已录金额");
+            return;
+          }
           try {
             onSave(recordPayment(order, { kind, amount: n, date, note }));
           } catch (err) {
@@ -3795,6 +3860,28 @@ function PaymentForm({ order, onSave, onClose }) {
         }}
       >
         <div className="form-body">
+          {travelState(order) === "pending" && (
+            <div className="travel-warning payment-travel-warning">
+              <CarFront size={18} />
+              <div>
+                车费仍待补录 / 核对，本次付款不会把车费标记为已确认。
+                {Number(amount) > 0 &&
+                  Math.round(Number(amount) * 100) ===
+                    Math.round(balance(order) * 100) && (
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={travelAcknowledged}
+                        onChange={(e) =>
+                          setTravelAcknowledged(e.target.checked)
+                        }
+                      />
+                      我确认本次仅付清当前已录金额，车费后续核对
+                    </label>
+                  )}
+              </div>
+            </div>
+          )}
           {error && (
             <div className="error-banner" role="alert">
               {error}

@@ -374,13 +374,13 @@ try {
               .click();
             return {
               submit: page.getByRole("button", {
-                name: "确认删除",
+                name: "移入回收站",
                 exact: true,
               }),
               verify: async () =>
                 assert.equal(
                   await page
-                    .getByRole("button", { name: "确认删除", exact: true })
+                    .getByRole("button", { name: "移入回收站", exact: true })
                     .count(),
                   1,
                 ),
@@ -480,6 +480,17 @@ try {
       await notice(/另一标签页同步/);
       assert.equal(await banner().count(), 0);
       assert.equal(await page.locator("dialog[open]").count(), 0);
+      // The former form is now an independent draft; it must not overwrite the synced order.
+      await page.goto(base + "#drafts", { waitUntil: "networkidle" });
+      await page.getByRole("button", { name: "继续填写", exact: true }).click();
+      await notice(/原订单已变化/);
+      assert.equal(await page.locator("dialog[open]").count(), 0);
+      await page.getByRole("button", { name: "删除草稿", exact: true }).click();
+      await page
+        .getByRole("dialog")
+        .getByRole("button", { name: "删除草稿", exact: true })
+        .click();
+      await page.goto(base + "#orders", { waitUntil: "networkidle" });
       await editOrder("当前存储中的真实最新订单");
       await page.getByLabel("拍摄主题").fill("同步后可正常保存");
       await page.getByRole("button", { name: "保存派单", exact: true }).click();

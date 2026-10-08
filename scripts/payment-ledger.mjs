@@ -72,7 +72,7 @@ try {
   await close();
   await register("deposit", 50, "2026-10-10", "补付定金 50 元");
   let saved = await read();
-  assert.equal(saved.version, 2);
+  assert.equal(saved.version, 3);
   assert.equal(saved.orders[0].depositPaid, 250);
   assert.equal(saved.orders[0].paymentLedger.baseline.depositPaid, 200);
   assert.equal(saved.orders[0].paymentLedger.entries.length, 1);
@@ -102,7 +102,7 @@ try {
     false,
   );
   assert.equal(await page.getByLabel("尾款支付日期").isEditable(), false);
-  await page.getByRole("button", { name: "取消", exact: true }).click();
+  await page.getByRole("button", { name: "暂存并关闭", exact: true }).click();
 
   await detail();
   await page.getByRole("button", { name: "更正初始累计", exact: true }).click();
@@ -177,7 +177,7 @@ try {
   const backup = JSON.parse(
     readFileSync("test-results/payment-ledger-backup.json", "utf8"),
   );
-  assert.equal(backup.version, 2);
+  assert.equal(backup.version, 3);
   assert.equal(backup.orders[0].paymentLedger.entries.length, 4);
   const corrupted = structuredClone(backup);
   corrupted.orders[0].settlementPaid--;

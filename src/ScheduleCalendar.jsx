@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   CalendarDays,
   ChevronLeft,
@@ -8,10 +9,12 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { active, shiftDate, today } from "./domain.mjs";
+import { calendarLabel } from "./workflow.mjs";
 import "./schedule-calendar.css";
 
 export default function ScheduleCalendar({
   orders,
+  partners,
   selected,
   month,
   setMonth,
@@ -20,6 +23,15 @@ export default function ScheduleCalendar({
   onSelect,
   onNew,
 }) {
+  const [view, setView] = useState("month");
+  const [compact, setCompact] = useState(true);
+  const [weekAnchor, setWeekAnchor] = useState(selected);
+  const anchor = weekAnchor.slice(0, 7) === month ? weekAnchor : month + "-01";
+  const weekStart = shiftDate(
+    anchor,
+    -((new Date(anchor + "T12:00:00").getDay() + 6) % 7),
+  );
+  const weekDays = Array.from({ length: 7 }, (_, i) => shiftDate(weekStart, i));
   const year = Number(month.slice(0, 4));
   const monthNumber = Number(month.slice(5));
   const first = month + "-01";
@@ -36,6 +48,12 @@ export default function ScheduleCalendar({
     o[field].startsWith(month),
   ).length;
   function moveMonth(delta) {
+    if (view === "week") {
+      const next = shiftDate(weekStart, delta * 7);
+      setWeekAnchor(next);
+      setMonth(next.slice(0, 7));
+      return;
+    }
     const next = new Date(year, monthNumber - 1 + delta, 1);
     setMonth(
       `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`,
@@ -71,7 +89,7 @@ export default function ScheduleCalendar({
           <div className="month-arrows">
             <button
               className="icon-button"
-              aria-label="上个月"
+              aria-label={view === "week" ? "上一周" : "上个月"}
               onClick={() => moveMonth(-1)}
             >
               <ChevronLeft size={20} />
@@ -80,6 +98,7 @@ export default function ScheduleCalendar({
               className="schedule-today"
               onClick={() => {
                 setMonth(today().slice(0, 7));
+                setWeekAnchor(today());
                 onSelect(today());
               }}
             >
@@ -87,7 +106,7 @@ export default function ScheduleCalendar({
             </button>
             <button
               className="icon-button"
-              aria-label="下个月"
+              aria-label={view === "week" ? "下一周" : "下个月"}
               onClick={() => moveMonth(1)}
             >
               <ChevronRight size={20} />
@@ -111,55 +130,169 @@ export default function ScheduleCalendar({
               按沟通日期
             </button>
           </div>
-          <span>每一格，都是值得记录的一天</span>
+          <div
+            className="calendar-display-switch"
+            role="group"
+            aria-label="日历视图"
+          >
+            <button
+              aria-pressed={view === "month"}
+              onClick={() => setView("month")}
+            >
+              月视图
+            </button>
+            <button
+              aria-pressed={view === "week"}
+              onClick={() => {
+                setView("week");
+                setWeekAnchor(
+                  selected.slice(0, 7) === month ? selected : month + "-01",
+                );
+              }}
+            >
+              周视图
+            </button>
+          </div>
         </div>
-        <div
-          className="month-sheet-grid"
-          style={{ "--week-count": cells.length / 7 }}
-        >
-          {["一", "二", "三", "四", "五", "六", "日"].map((day) => (
-            <div className="month-weekday" key={day}>
-              周{day}
-            </div>
-          ))}
-          {cells.map((date) => {
-            const items = visibleOrders.filter((o) => o[field] === date);
-            return (
-              <button
-                key={date}
-                className={
-                  "month-day" +
-                  (date.slice(0, 7) !== month ? " outside" : "") +
-                  (date === selected ? " selected" : "") +
-                  (date === today() ? " today" : "")
-                }
-                aria-label={`${date}，${items.length} ${field === "shootDate" ? "场拍摄" : "次沟通"}`}
-                aria-pressed={date === selected}
-                aria-haspopup="dialog"
-                onClick={() => {
-                  if (date.slice(0, 7) !== month) setMonth(date.slice(0, 7));
-                  onSelect(date);
-                }}
-              >
-                <span className="month-day-number">
-                  {Number(date.slice(-2))}
-                </span>
-                <span className="month-day-events">
-                  {items.slice(0, 2).map((order) => (
-                    <span
-                      key={order.id}
-                      className={order.type === "婚庆" ? "wedding" : "event"}
-                      title={`${order.startTime} ${order.title}`}
-                    >
-                      {order.title}
-                    </span>
-                  ))}
-                  {items.length > 2 && <small>+{items.length - 2} 场</small>}
-                </span>
-              </button>
-            );
-          })}
+        <div className="calendar-label-tools">
+          <span>
+            {view === "week"
+              ? `${weekStart} — ${weekDays[6]}`
+              : "直接看伙伴与宴会厅，点击日期展开"}
+          </span>
+          <label>
+            <input
+              type="checkbox"
+              checked={compact}
+              onChange={(e) => setCompact(e.target.checked)}
+            />
+            伙伴 · 展厅
+          </label>
         </div>
+        {view === "week" ? (
+          <div
+            className="week-agenda"
+            key={weekStart + field + view}
+            aria-label="本周安排"
+          >
+            {weekDays.map((date, i) => {
+              const items = visibleOrders.filter((o) => o[field] === date);
+              return (
+                <button
+                  key={date}
+                  className={
+                    "week-day-row" + (date === today() ? " today" : "")
+                  }
+                  aria-label={`${date}，${items.length} ${field === "shootDate" ? "场拍摄" : "次沟通"}`}
+                  aria-haspopup="dialog"
+                  onClick={() => onSelect(date)}
+                >
+                  <span className="week-date">
+                    <small>
+                      周{["一", "二", "三", "四", "五", "六", "日"][i]}
+                    </small>
+                    <strong>{Number(date.slice(-2))}</strong>
+                    <small>{date.slice(5, 7)} 月</small>
+                  </span>
+                  <span className="week-events">
+                    {items.length ? (
+                      items.map((o) => (
+                        <span className="week-event" key={o.id}>
+                          <strong>
+                            {o.startTime}–{o.endTime} <em>{o.type}</em>
+                          </strong>
+                          <span>
+                            {compact ? calendarLabel(o, partners) : o.title}
+                          </span>
+                          <small>
+                            {o.venue} · {o.dispatchStatus}
+                            {field === "communicatedDate"
+                              ? ` · 拍摄 ${o.shootDate}`
+                              : ""}
+                          </small>
+                        </span>
+                      ))
+                    ) : (
+                      <span className="week-empty">
+                        暂无{field === "shootDate" ? "拍摄" : "沟通"}安排
+                      </span>
+                    )}
+                  </span>
+                  <ArrowRight size={16} />
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div
+            key={month + field + view}
+            className="month-sheet-grid"
+            style={{ "--week-count": cells.length / 7 }}
+          >
+            {["一", "二", "三", "四", "五", "六", "日"].map((day) => (
+              <div className="month-weekday" key={day}>
+                周{day}
+              </div>
+            ))}
+            {cells.map((date) => {
+              const items = visibleOrders.filter((o) => o[field] === date);
+              return (
+                <button
+                  key={date}
+                  className={
+                    "month-day" +
+                    (date.slice(0, 7) !== month ? " outside" : "") +
+                    (date === selected ? " selected" : "") +
+                    (date === today() ? " today" : "")
+                  }
+                  aria-label={`${date}，${items.length} ${field === "shootDate" ? "场拍摄" : "次沟通"}`}
+                  aria-pressed={date === selected}
+                  aria-haspopup="dialog"
+                  onClick={() => {
+                    if (date.slice(0, 7) !== month) setMonth(date.slice(0, 7));
+                    onSelect(date);
+                  }}
+                >
+                  <span className="month-day-number">
+                    {Number(date.slice(-2))}
+                  </span>
+                  <span className="month-day-events">
+                    {items.slice(0, 2).map((order) => (
+                      <span
+                        key={order.id}
+                        className={order.type === "婚庆" ? "wedding" : "event"}
+                        title={`${order.startTime} ${order.title} · ${calendarLabel(order, partners)} · ${order.dispatchStatus}`}
+                      >
+                        {["待确认", "已改期"].includes(
+                          order.dispatchStatus,
+                        ) && (
+                          <i
+                            className="pending-calendar-dot"
+                            aria-label="待确认"
+                          />
+                        )}
+                        {compact ? (
+                          <>
+                            <b className="calendar-partner">
+                              {partners.find((p) => p.id === order.partnerId)
+                                ?.name || "待安排"}
+                            </b>
+                            <em className="calendar-hall">
+                              {order.hall || order.venue}
+                            </em>
+                          </>
+                        ) : (
+                          order.title
+                        )}
+                      </span>
+                    ))}
+                    {items.length > 2 && <small>+{items.length - 2} 场</small>}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
         <div className="month-sheet-foot">
           <div className="calendar-legend">
             <span>
@@ -169,6 +302,10 @@ export default function ScheduleCalendar({
             <span>
               <i className="event" />
               活动 / 其他
+            </span>
+            <span>
+              <i className="pending-calendar-dot" />
+              待确认
             </span>
           </div>
           <span>点击日期查看详情</span>

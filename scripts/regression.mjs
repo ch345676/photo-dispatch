@@ -80,9 +80,9 @@ await p
 await p.getByRole("button", { name: "编辑派单" }).click();
 await p.getByLabel("拍摄费用").fill("10");
 await p.getByRole("button", { name: "保存派单", exact: true }).click();
-await p.locator("dialog[open] .toast").waitFor();
+await p.locator("dialog[open] .error-banner").waitFor();
 assert.ok(
-  (await p.locator("dialog[open] .toast").innerText()).includes(
+  (await p.locator("dialog[open] .error-banner").innerText()).includes(
     "约定定金不能超过",
   ),
   "校验错误在弹窗上层可见",

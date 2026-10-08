@@ -1,4 +1,11 @@
-export const VERSION = 2;
+export const VERSION = 3;
+export const TRAVEL_STATES = {
+  none: "无需报销",
+  pending: "待补车费",
+  checked: "已核对",
+};
+export const travelState = (o) =>
+  o.travelStatus ?? ((o.travelAmount || 0) > 0 ? "checked" : "none");
 export const TYPES = ["婚庆", "活动", "其他"];
 export const DISPATCH = ["待确认", "已确认", "已拒绝", "已改期", "已取消"];
 export const EXECUTION = ["待拍摄", "已完成", "已取消", "已改期"];
@@ -34,13 +41,15 @@ export const depositStatus = (o) =>
         ? "已付定金"
         : "部分定金";
 export const settlementStatus = (o) =>
-  o.settlementExempt || !payable(o)
-    ? "无需结账"
-    : !balance(o)
-      ? "已结账"
-      : !o.settlementPaid
-        ? "未结账"
-        : "部分结账";
+  travelState(o) === "pending" && !balance(o)
+    ? "待核车费"
+    : o.settlementExempt || !payable(o)
+      ? "无需结账"
+      : !balance(o)
+        ? "已结账"
+        : !o.settlementPaid
+          ? "未结账"
+          : "部分结账";
 export const active = (o) =>
   !["已取消", "已拒绝"].includes(o.dispatchStatus) &&
   o.executionStatus !== "已取消";
@@ -48,6 +57,7 @@ export const uid = () => crypto.randomUUID();
 export const emptyData = () => ({
   version: VERSION,
   orders: [],
+  trash: [],
   partners: [],
   venues: [],
   settings: {
@@ -392,6 +402,51 @@ export function validateOrder(o, partners) {
     return "订单状态无效";
   if (o.dispatchStatus === "已取消" && o.executionStatus !== "已取消")
     return "已取消派单的执行状态也应为已取消";
+  if (!Object.hasOwn(TRAVEL_STATES, travelState(o))) return "车费状态无效";
+  if (travelState(o) === "none" && (o.travelAmount || 0) > 0)
+    return "已有车费金额，请选择已核对或待补车费";
+  if (o.scheduleHistory !== undefined) {
+    if (!Array.isArray(o.scheduleHistory) || o.scheduleHistory.length > 500)
+      return "改期记录格式或数量无效";
+    const ids = new Set();
+    let lastPoint;
+    for (const h of o.scheduleHistory) {
+      if (
+        !h ||
+        typeof h.id !== "string" ||
+        !h.id ||
+        ids.has(h.id) ||
+        !validStamp(h.recordedAt) ||
+        typeof h.reason !== "string" ||
+        !h.reason.trim() ||
+        h.reason.length > 500
+      )
+        return "改期记录缺少有效原因或时间";
+      ids.add(h.id);
+      for (const v of [h.from, h.to])
+        if (
+          !v ||
+          !validDate(v.date) ||
+          !validTime(v.start) ||
+          !validTime(v.end) ||
+          v.end <= v.start
+        )
+          return "改期前后日期或时间无效";
+      if (
+        lastPoint &&
+        ["date", "start", "end"].some((k) => lastPoint[k] !== h.from[k])
+      )
+        return "改期记录前后不连续";
+      lastPoint = h.to;
+    }
+    if (
+      lastPoint &&
+      (lastPoint.date !== o.shootDate ||
+        lastPoint.start !== o.startTime ||
+        lastPoint.end !== o.endTime)
+    )
+      return "最后一次改期与当前拍摄安排不一致";
+  }
   const ledgerError = validateLedger(o);
   if (ledgerError) return ledgerError;
   return "";
@@ -415,6 +470,12 @@ export function reminders(data, date = today()) {
     const add = (kind, text, tone = "amber") =>
       list.push({ id: o.id + kind, order: o, kind, text, tone });
     if (active(o)) {
+      if (
+        s.settlement &&
+        travelState(o) === "pending" &&
+        (o.shootDate <= date || o.executionStatus === "已完成")
+      )
+        add("travel", "车费尚待补录，请在结清前核对", "amber");
       if (o.executionStatus === "待拍摄") {
         if (s.before3 && o.shootDate === shiftDate(date, 3))
           add("shoot3", "3 天后拍摄，请确认行程", "green");
@@ -456,23 +517,30 @@ export function reminders(data, date = today()) {
 export function validateBackup(d) {
   if (
     !d ||
-    ![1, VERSION].includes(d.version) ||
+    ![1, 2, VERSION].includes(d.version) ||
     !Array.isArray(d.orders) ||
     !Array.isArray(d.partners) ||
     !Array.isArray(d.venues) ||
     !d.settings
   )
-    throw new Error("文件不是有效的拾光派单备份（支持版本 1、2）");
+    throw new Error("文件不是有效的拾光派单备份（支持版本 1、2、3）");
+  if (d.trash !== undefined && !Array.isArray(d.trash))
+    throw new Error("回收站格式无效");
+  const normalizeOrder = (o) => ({
+    ...o,
+    travelAmount: o?.travelAmount ?? 0,
+    travelNote: o?.travelNote ?? "",
+  });
   d = {
     ...d,
-    orders: d.orders.map((o) => ({
-      ...o,
-      travelAmount: o?.travelAmount ?? 0,
-      travelNote: o?.travelNote ?? "",
+    orders: d.orders.map(normalizeOrder),
+    trash: (d.trash || []).map((entry) => ({
+      ...entry,
+      order: normalizeOrder(entry?.order),
     })),
   };
   if (
-    d.orders.length > 10000 ||
+    d.orders.length + d.trash.length > 10000 ||
     d.partners.length > 5000 ||
     d.venues.length > 5000
   )
@@ -484,6 +552,17 @@ export function validateBackup(d) {
         throw new Error("备份存在无效或重复编号");
       ids.add(row.id);
     }
+  }
+  const orderIds = new Set(d.orders.map((o) => o.id));
+  for (const entry of d.trash) {
+    if (
+      !entry.order.id ||
+      typeof entry.order.id !== "string" ||
+      orderIds.has(entry.order.id) ||
+      !validStamp(entry.deletedAt)
+    )
+      throw new Error("回收站记录编号重复或删除时间无效");
+    orderIds.add(entry.order.id);
   }
   for (const p of d.partners)
     if (
@@ -502,7 +581,7 @@ export function validateBackup(d) {
       !v.halls.every((h) => typeof h === "string")
     )
       throw new Error("场地信息不完整");
-  for (const o of d.orders) {
+  for (const o of [...d.orders, ...d.trash.map((e) => e.order)]) {
     if (
       ![
         "title",
@@ -528,6 +607,7 @@ export function validateBackup(d) {
   return {
     version: VERSION,
     orders: d.orders,
+    trash: d.trash,
     partners: d.partners,
     venues: d.venues,
     settings: d.settings,

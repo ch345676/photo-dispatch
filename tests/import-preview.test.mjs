@@ -59,6 +59,7 @@ test("预览按分汇总车费和累计付款一次，日期范围覆盖全部�
     }),
   ]);
   assert.deepEqual(summarizeBackup(data), {
+    trash: 0,
     orders: 2,
     partners: 4,
     venues: 3,
@@ -146,6 +147,7 @@ test("取消和拒绝订单的实际应付、已付与欠款都保留在导入�
 
 test("空备份、仅联系人资料和零元免结订单的预览口径明确", () => {
   assert.deepEqual(summarizeBackup(validateBackup(emptyData())), {
+    trash: 0,
     orders: 0,
     partners: 0,
     venues: 0,

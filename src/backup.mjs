@@ -62,7 +62,7 @@ export function nextBackupReminder(now = Date.now()) {
 
 export function backupStatus(data, mode, metadata, now = Date.now()) {
   const meta = normalizeBackupMeta(metadata, now);
-  const hasData = ["orders", "partners", "venues"].some(
+  const hasData = ["orders", "partners", "venues", "trash"].some(
     (key) => Array.isArray(data?.[key]) && data[key].length > 0,
   );
   let reason;

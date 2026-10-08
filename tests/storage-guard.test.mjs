@@ -147,7 +147,7 @@ test("v1旧数据补全车费后与已加载数据一致，真正改动仍返回
   const result = inspectBusinessStorage(legacyRaw, legacyRaw, current);
   assert.equal(result.kind, "current");
   assert.deepEqual(result.data, current);
-  assert.equal(result.data.version, 2);
+  assert.equal(result.data.version, 3);
   assert.ok(result.data.orders.every((order) => order.travelAmount === 0));
   const changedLegacy = structuredClone(legacy);
   changedLegacy.orders[0].note = "旧版导入后的真实修改";
@@ -157,7 +157,7 @@ test("v1旧数据补全车费后与已加载数据一致，真正改动仍返回
     current,
   );
   assert.equal(changed.kind, "changed");
-  assert.equal(changed.data.version, 2);
+  assert.equal(changed.data.version, 3);
   assert.equal(changed.data.orders[0].travelNote, "");
 });
 

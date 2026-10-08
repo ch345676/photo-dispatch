@@ -413,7 +413,7 @@ try {
       assert.match(await dialog(page).innerText(), /版本[\s\S]*1/);
       await confirm(page);
       const restored = JSON.parse(await raw(page, keys.personal));
-      assert.equal(restored.version, 2);
+      assert.equal(restored.version, 3);
       assert.equal(restored.orders[0].travelAmount, 0);
       assert.equal(restored.orders[0].travelNote, "");
     },

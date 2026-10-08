@@ -34,10 +34,10 @@ const entry = (kind, amount, date = "2026-10-08", note = "") => ({
   note,
 });
 
-test("v1 到 v2 迁移确定且幂等，旧累计不会被伪造为流水", () => {
+test("v1 到 v3 迁移确定且幂等，旧累计不会被伪造为流水", () => {
   const old = { ...data, version: 1, orders: [legacy] };
   const restored = validateBackup(old);
-  assert.equal(restored.version, 2);
+  assert.equal(restored.version, 3);
   assert.equal(restored.orders[0].paymentLedger, undefined);
   assert.deepEqual(validateBackup(restored), restored);
   assert.equal(old.version, 1);

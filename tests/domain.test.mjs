@@ -121,7 +121,7 @@ test("提醒随拍摄日期更新且不改沟通日期", () => {
 test("备份往返保留记录且拒绝损坏或重复记录", () => {
   const raw = JSON.parse(JSON.stringify(data));
   assert.deepEqual(validateBackup(raw), data);
-  assert.throws(() => validateBackup({ ...raw, version: 3 }));
+  assert.throws(() => validateBackup({ ...raw, version: 99 }));
   assert.throws(() =>
     validateBackup({ ...raw, orders: [...raw.orders, raw.orders[0]] }),
   );
