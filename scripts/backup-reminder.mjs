@@ -101,9 +101,11 @@ const reminder = (page) =>
 const notice = (page, text) =>
   page.getByRole("status").filter({ hasText: text }).waitFor();
 const settings = (page) =>
-  page.getByRole("button", { name: "数据与设置", exact: true }).click();
-const overview = (page) =>
-  page.getByRole("button", { name: "工作台", exact: true }).click();
+  page.getByRole("button", { name: "我的", exact: true }).click();
+const overview = async (page) => {
+  await page.getByRole("button", { name: "我的", exact: true }).click();
+  await page.getByRole("button", { name: "业务概览", exact: true }).click();
+};
 
 async function advance(page, time) {
   await page.clock.setFixedTime(new Date(time));

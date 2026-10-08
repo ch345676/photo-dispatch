@@ -15,9 +15,10 @@ const url = process.env.QA_BASE_URL || "http://127.0.0.1:5188";
 const errors = [];
 p.on("pageerror", (e) => errors.push(e.message));
 await p.goto(url, { waitUntil: "networkidle" });
-await p.getByRole("button", { name: "派单日历", exact: true }).click();
+await p.getByRole("button", { name: "日历", exact: true }).click();
 await p.getByRole("button", { name: "按沟通日期" }).click();
-await p.getByRole("button", { name: "工作台", exact: true }).click();
+await p.getByRole("button", { name: "我的", exact: true }).click();
+await p.getByRole("button", { name: "业务概览", exact: true }).click();
 assert.equal(
   await p.locator(".day-schedule .shoot-card").count(),
   2,
@@ -52,7 +53,7 @@ await p.evaluate((d) => {
   localStorage.setItem("shiguang-photo-v1-personal", JSON.stringify(d));
 }, data);
 await p.reload();
-await p.getByRole("button", { name: "费用结算", exact: true }).click();
+await p.getByRole("button", { name: "结算", exact: true }).click();
 await p.getByRole("button", { name: "待结账", exact: true }).click();
 assert.equal(
   await p.locator(".table-title").filter({ hasText: "取消后仍需付费" }).count(),

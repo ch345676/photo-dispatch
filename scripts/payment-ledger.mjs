@@ -168,7 +168,7 @@ try {
   assert.equal(balance(saved.orders[0]), 0);
   await other.close();
 
-  await page.getByRole("button", { name: "数据与设置", exact: true }).click();
+  await page.getByRole("button", { name: "我的", exact: true }).click();
   const downloadPromise = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出完整备份" }).click();
   await (
@@ -181,13 +181,11 @@ try {
   assert.equal(backup.orders[0].paymentLedger.entries.length, 4);
   const corrupted = structuredClone(backup);
   corrupted.orders[0].settlementPaid--;
-  await page
-    .locator("input[type=file]")
-    .setInputFiles({
-      name: "bad-ledger.json",
-      mimeType: "application/json",
-      buffer: Buffer.from(JSON.stringify(corrupted)),
-    });
+  await page.locator("input[type=file]").setInputFiles({
+    name: "bad-ledger.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(corrupted)),
+  });
   await page.getByRole("status").filter({ hasText: "不一致" }).waitFor();
   assert.deepEqual(await read(), saved);
   await page

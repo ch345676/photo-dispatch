@@ -237,7 +237,7 @@ try {
     assert.deepEqual((await read()).orders, saved.orders);
   }
   await page.setViewportSize({ width: 1512, height: 1120 });
-  await page.getByRole("button", { name: "数据与设置", exact: true }).click();
+  await page.getByRole("button", { name: "我的", exact: true }).click();
   const download = page.waitForEvent("download");
   await page.getByRole("button", { name: "导出完整备份" }).click();
   await (await download).saveAs("test-results/duplicate-backup.json");

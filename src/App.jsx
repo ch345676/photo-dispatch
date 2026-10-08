@@ -22,7 +22,6 @@ import {
   Download,
   Upload,
   X,
-  Menu,
   Sun,
   SlidersHorizontal,
   MoreHorizontal,
@@ -77,15 +76,48 @@ import { summarizeBackup } from "./import-preview.mjs";
 import { orderStatusActions, transitionOrderStatus } from "./order-status.mjs";
 import PaymentReport from "./PaymentReport.jsx";
 import { inspectBusinessStorage } from "./storage-guard.mjs";
+import ScheduleCalendar, { DayAgenda } from "./ScheduleCalendar.jsx";
 
 const NAV = [
-  ["overview", "工作台", LayoutDashboard],
+  ["overview", "业务概览", LayoutDashboard],
   ["calendar", "派单日历", CalendarDays],
   ["orders", "全部订单", ClipboardList],
   ["partners", "合作伙伴", Users],
   ["finance", "费用结算", Wallet],
   ["venues", "场地管理", MapPin],
 ];
+const SECTIONS = [
+  {
+    label: "日历",
+    icon: CalendarDays,
+    pages: ["calendar"],
+    hint: "查看每日拍摄",
+  },
+  {
+    label: "派单",
+    icon: ClipboardList,
+    pages: ["orders", "reminders"],
+    hint: "订单与待办提醒",
+  },
+  { label: "结算", icon: Wallet, pages: ["finance"], hint: "拍摄费与车费" },
+  {
+    label: "资源",
+    icon: Users,
+    pages: ["partners", "venues"],
+    hint: "伙伴与常用场地",
+  },
+  {
+    label: "我的",
+    icon: Settings,
+    pages: ["settings", "overview"],
+    hint: "备份、设置与概览",
+  },
+];
+const pageTitle = (page) =>
+  NAV.find((n) => n[0] === page)?.[1] ||
+  { settings: "数据与设置", reminders: "提醒中心" }[page];
+const validPage = (page) =>
+  SECTIONS.some((section) => section.pages.includes(page));
 const STORAGE = "shiguang-photo-v1-";
 const backupKey = (mode) => STORAGE + "backup-" + mode;
 function readBackupMeta(mode) {
@@ -218,7 +250,14 @@ function Empty({ text = "暂时没有记录", onAdd, action = "新建派单" }) 
     </div>
   );
 }
-function Modal({ title, subtitle, children, onClose, wide = false }) {
+function Modal({
+  title,
+  subtitle,
+  children,
+  onClose,
+  wide = false,
+  className = "",
+}) {
   const ref = useRef(null);
   useEffect(() => {
     const d = ref.current;
@@ -232,7 +271,7 @@ function Modal({ title, subtitle, children, onClose, wide = false }) {
   return (
     <dialog
       ref={ref}
-      className={"modal " + (wide ? "wide" : "")}
+      className={"modal " + (wide ? "wide " : "") + className}
       onCancel={(e) => {
         e.preventDefault();
         onClose();
@@ -407,19 +446,16 @@ export default function App() {
   const [hasPageSnapshot, setHasPageSnapshot] = useState(!initial.error);
   const backup = backupStatus(data, mode, backupMeta, backupNow);
   const [page, setPage] = useState(() =>
-    NAV.some((n) => n[0] === location.hash.slice(1)) ||
-    ["reminders", "settings"].includes(location.hash.slice(1))
-      ? location.hash.slice(1)
-      : "overview",
+    validPage(location.hash.slice(1)) ? location.hash.slice(1) : "calendar",
   );
-  const [mobileMenu, setMobileMenu] = useState(false),
-    [financeView, setFinanceView] = useState("orders"),
+  const [financeView, setFinanceView] = useState("orders"),
     [modal, setModal] = useState(null),
     [toast, setToast] = useState(""),
     [query, setQuery] = useState(""),
     [selected, setSelected] = useState(today()),
     [month, setMonth] = useState(today().slice(0, 7)),
     [dateField, setDateField] = useState("shootDate");
+  const [calendarField, setCalendarField] = useState("shootDate");
   const [filters, setFilters] = useState({
       from: "",
       to: "",
@@ -446,8 +482,9 @@ export default function App() {
   useEffect(() => {
     const h = () => {
       const p = location.hash.slice(1);
-      if (NAV.some((n) => n[0] === p) || ["settings", "reminders"].includes(p))
-        setPage(p);
+      setPage(validPage(p) ? p : "calendar");
+      setModal(null);
+      window.scrollTo(0, 0);
     };
     window.addEventListener("hashchange", h);
     return () => window.removeEventListener("hashchange", h);
@@ -574,7 +611,7 @@ export default function App() {
     setPage(p);
     setFinanceView("orders");
     location.hash = p;
-    setMobileMenu(false);
+    window.scrollTo(0, 0);
     setQuery("");
     setTab("all");
     setPartnerView("");
@@ -661,17 +698,22 @@ export default function App() {
   const selectedOrders = data.orders
     .filter(
       (o) =>
-        o[page === "overview" ? "shootDate" : dateField] === selected &&
+        o[page === "calendar" ? calendarField : "shootDate"] === selected &&
         active(o),
     )
     .sort((a, b) => a.startTime.localeCompare(b.startTime));
   const dueOrders = data.orders.filter((o) => balance(o) > 0 && active(o));
-  function newOrder(date = selected) {
+  function newOrder(date = selected, communicationDate) {
+    const draft = blankOrder(date);
+    if (communicationDate) {
+      draft.communicatedDate = communicationDate;
+      draft.shootDate = "";
+    }
     if (!data.partners.length) {
-      setModal({ type: "partner", nextOrder: true });
+      setModal({ type: "partner", nextOrder: true, pendingOrder: draft });
       return;
     }
-    setModal({ type: "order", value: blankOrder(date) });
+    setModal({ type: "order", value: draft });
   }
   function filteredOrders() {
     return data.orders
@@ -1379,18 +1421,20 @@ export default function App() {
       </div>
     );
   }
-  const title =
-    page === "overview"
-      ? "工作台"
-      : NAV.find((n) => n[0] === page)?.[1] ||
-        { settings: "数据与设置", reminders: "提醒中心" }[page];
+  const title = pageTitle(page);
+  const section = SECTIONS.find((s) => s.pages.includes(page)) || SECTIONS[0];
   return (
-    <div className="app-shell">
-      <aside className={"sidebar " + (mobileMenu ? "open" : "")}>
+    <div
+      className={
+        "app-shell sectioned-app " +
+        (page === "calendar" ? "calendar-home" : "")
+      }
+    >
+      <aside className="sidebar">
         <a
           className="brand"
-          href="#overview"
-          onClick={() => navigate("overview")}
+          href="#calendar"
+          onClick={() => navigate("calendar")}
         >
           <span className="brand-mark">
             <Camera size={24} />
@@ -1415,40 +1459,32 @@ export default function App() {
         <div className="nav-label">
           工作空间 <span>WORKSPACE</span>
         </div>
-        <nav>
-          {NAV.map(([id, label, Icon]) => (
+        <nav aria-label="主导航">
+          {SECTIONS.map(({ pages, label, icon: Icon, hint }) => (
             <button
-              key={id}
-              className={"nav-item " + (page === id ? "active" : "")}
-              onClick={() => navigate(id)}
+              key={label}
+              aria-label={label}
+              aria-current={pages.includes(page) ? "page" : undefined}
+              className={
+                "nav-item section-nav-item " +
+                (pages.includes(page) ? "active" : "")
+              }
+              onClick={() => navigate(pages[0])}
             >
               <Icon size={19} />
-              <span>{label}</span>
-              {id === "orders" && <small>{data.orders.length}</small>}
-              {id === "overview" && page === id && (
-                <span className="active-dot" />
+              <span>
+                <strong>{label}</strong>
+                <em>{hint}</em>
+              </span>
+              {label === "派单" && alerts.length > 0 && (
+                <small>{alerts.length}</small>
+              )}
+              {label === "我的" && backup.show && (
+                <span className="section-notice-dot" />
               )}
             </button>
           ))}
         </nav>
-        <div className="nav-divider" />
-        <button
-          className={"nav-item " + (page === "reminders" ? "active" : "")}
-          onClick={() => navigate("reminders")}
-        >
-          <Bell size={19} />
-          <span>提醒中心</span>
-          {alerts.length > 0 && (
-            <small className="alert-count">{alerts.length}</small>
-          )}
-        </button>
-        <button
-          className={"nav-item " + (page === "settings" ? "active" : "")}
-          onClick={() => navigate("settings")}
-        >
-          <Settings size={19} />
-          <span>数据与设置</span>
-        </button>
         <div className="sidebar-bottom">
           <div className="sidebar-note">
             <span className="note-icon">
@@ -1481,26 +1517,15 @@ export default function App() {
           </div>
         </div>
       </aside>
-      {mobileMenu && (
-        <button
-          className="sidebar-overlay"
-          aria-label="关闭导航"
-          onClick={() => setMobileMenu(false)}
-        />
-      )}
       <div className="main-shell">
         <header className="topbar">
           <div className="breadcrumb">
-            <button
-              className="icon-button mobile-toggle"
-              aria-label="打开导航"
-              onClick={() => setMobileMenu(true)}
-            >
-              <Menu size={21} />
-            </button>
-            <span>我的工作室</span>
+            <span className="mobile-brand">
+              <Camera size={18} />
+              拾光派单
+            </span>
             <ChevronRight size={13} />
-            <strong>{title}</strong>
+            <strong>{section.label}</strong>
           </div>
           <div className="topbar-right">
             <span className="save-status">
@@ -1520,79 +1545,100 @@ export default function App() {
           </div>
         </header>
         <main>
-          <div className="page-heading">
-            <div>
-              <div className="eyebrow">
-                {page === "overview"
-                  ? "YOUR CREATIVE WORK, IN ORDER"
-                  : "SHIGUANG · " +
-                    {
-                      calendar: "SHOOTING CALENDAR",
-                      orders: "ASSIGNMENTS",
-                      partners: "CREATIVE PARTNERS",
-                      finance: "PAYMENTS",
-                      venues: "LOCATIONS",
-                      reminders: "REMINDERS",
-                      settings: "YOUR WORKSPACE",
-                    }[page]}
+          {section.pages.length > 1 && (
+            <nav className="section-tabs" aria-label={`${section.label}分类`}>
+              {section.pages.map((id) => (
+                <button
+                  key={id}
+                  aria-current={page === id ? "page" : undefined}
+                  className={page === id ? "active" : ""}
+                  onClick={() => navigate(id)}
+                >
+                  {pageTitle(id)}
+                  {id === "reminders" && alerts.length > 0 && (
+                    <span>{alerts.length}</span>
+                  )}
+                </button>
+              ))}
+            </nav>
+          )}
+          {page !== "calendar" && (
+            <div className="page-heading">
+              <div>
+                <div className="eyebrow">
+                  {page === "overview"
+                    ? "YOUR CREATIVE WORK, IN ORDER"
+                    : "SHIGUANG · " +
+                      {
+                        calendar: "SHOOTING CALENDAR",
+                        orders: "ASSIGNMENTS",
+                        partners: "CREATIVE PARTNERS",
+                        finance: "PAYMENTS",
+                        venues: "LOCATIONS",
+                        reminders: "REMINDERS",
+                        settings: "YOUR WORKSPACE",
+                      }[page]}
+                </div>
+                <h1>
+                  {page === "overview" ? "把每一次拍摄，安排妥当。" : title}
+                </h1>
+                <p>
+                  {page === "overview"
+                    ? `${new Date(today() + "T12:00:00").toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long" })}，今天也要拍出好作品。`
+                    : {
+                        calendar: "拍摄与派单沟通，两个日期维度，一眼掌握。",
+                        orders: "从第一次沟通，到最后一笔结清。",
+                        partners: "好的作品，来自默契的合作。",
+                        finance: "每一笔定金、每一次结算，都有迹可循。",
+                        venues: "记录每个目的地，细化到每一间宴会厅。",
+                        reminders: "那些需要多留意一下的事情，都在这里。",
+                        settings: "数据留在你的浏览器，工作节奏由你掌握。",
+                      }[page]}
+                </p>
               </div>
-              <h1>
-                {page === "overview" ? "把每一次拍摄，安排妥当。" : title}
-              </h1>
-              <p>
-                {page === "overview"
-                  ? `${new Date(today() + "T12:00:00").toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long" })}，今天也要拍出好作品。`
-                  : {
-                      calendar: "拍摄与派单沟通，两个日期维度，一眼掌握。",
-                      orders: "从第一次沟通，到最后一笔结清。",
-                      partners: "好的作品，来自默契的合作。",
-                      finance: "每一笔定金、每一次结算，都有迹可循。",
-                      venues: "记录每个目的地，细化到每一间宴会厅。",
-                      reminders: "那些需要多留意一下的事情，都在这里。",
-                      settings: "数据留在你的浏览器，工作节奏由你掌握。",
-                    }[page]}
-              </p>
+              <div className="heading-actions">
+                {["overview", "finance"].includes(page) && (
+                  <label className="month-control">
+                    <CalendarDays size={16} />
+                    <input
+                      aria-label="统计月份"
+                      type="month"
+                      value={month}
+                      onChange={(e) =>
+                        e.target.value && setMonth(e.target.value)
+                      }
+                    />
+                  </label>
+                )}
+                {!["settings", "reminders", "partners", "venues"].includes(
+                  page,
+                ) && (
+                  <button className="button primary" onClick={() => newOrder()}>
+                    <Plus size={18} />
+                    新建派单
+                  </button>
+                )}
+                {page === "partners" && (
+                  <button
+                    className="button primary"
+                    onClick={() => setModal({ type: "partner" })}
+                  >
+                    <Plus size={18} />
+                    添加伙伴
+                  </button>
+                )}
+                {page === "venues" && (
+                  <button
+                    className="button primary"
+                    onClick={() => setModal({ type: "venue" })}
+                  >
+                    <Plus size={18} />
+                    添加场地
+                  </button>
+                )}
+              </div>
             </div>
-            <div className="heading-actions">
-              {["overview", "calendar", "finance"].includes(page) && (
-                <label className="month-control">
-                  <CalendarDays size={16} />
-                  <input
-                    aria-label="统计月份"
-                    type="month"
-                    value={month}
-                    onChange={(e) => e.target.value && setMonth(e.target.value)}
-                  />
-                </label>
-              )}
-              {!["settings", "reminders", "partners", "venues"].includes(
-                page,
-              ) && (
-                <button className="button primary" onClick={() => newOrder()}>
-                  <Plus size={18} />
-                  新建派单
-                </button>
-              )}
-              {page === "partners" && (
-                <button
-                  className="button primary"
-                  onClick={() => setModal({ type: "partner" })}
-                >
-                  <Plus size={18} />
-                  添加伙伴
-                </button>
-              )}
-              {page === "venues" && (
-                <button
-                  className="button primary"
-                  onClick={() => setModal({ type: "venue" })}
-                >
-                  <Plus size={18} />
-                  添加场地
-                </button>
-              )}
-            </div>
-          </div>
+          )}
           {mode === "demo" && (
             <div className="demo-banner">
               <span>
@@ -1768,65 +1814,19 @@ export default function App() {
             </>
           )}
           {page === "calendar" && (
-            <>
-              <div className="view-bar">
-                <div className="segmented">
-                  <button
-                    className={dateField === "shootDate" ? "selected" : ""}
-                    onClick={() => setDateField("shootDate")}
-                  >
-                    按拍摄日期
-                  </button>
-                  <button
-                    className={
-                      dateField === "communicatedDate" ? "selected" : ""
-                    }
-                    onClick={() => setDateField("communicatedDate")}
-                  >
-                    按沟通日期
-                  </button>
-                </div>
-                <span className="muted">点击日期查看当天安排</span>
-              </div>
-              <div className="calendar-page-grid">
-                <section className="panel">
-                  <Calendar
-                    large
-                    orders={data.orders}
-                    selected={selected}
-                    onSelect={setSelected}
-                    month={month}
-                    setMonth={setMonth}
-                    field={dateField}
-                  />
-                </section>
-                <section className="panel">
-                  <div className="section-header">
-                    <h2>
-                      {Number(selected.slice(5, 7))} 月{" "}
-                      {Number(selected.slice(8))} 日
-                    </h2>
-                    <span className="count-chip">
-                      {selectedOrders.length} 场
-                    </span>
-                  </div>
-                  <div className="calendar-side-list">
-                    {selectedOrders.length ? (
-                      selectedOrders.map(orderCard)
-                    ) : (
-                      <Empty
-                        text={
-                          dateField === "shootDate"
-                            ? "当天没有拍摄安排"
-                            : "当天没有派单沟通记录"
-                        }
-                        onAdd={() => newOrder(selected)}
-                      />
-                    )}
-                  </div>
-                </section>
-              </div>
-            </>
+            <ScheduleCalendar
+              orders={data.orders}
+              selected={selected}
+              month={month}
+              setMonth={setMonth}
+              field={calendarField}
+              setField={setCalendarField}
+              onSelect={(date) => {
+                setSelected(date);
+                setModal({ type: "day" });
+              }}
+              onNew={() => newOrder(today())}
+            />
           )}
           {page === "finance" && (
             <div
@@ -2451,6 +2451,24 @@ export default function App() {
           </footer>
         </main>
       </div>
+      <nav className="bottom-sections" aria-label="底部分栏">
+        {SECTIONS.map(({ label, icon: Icon, pages }) => (
+          <button
+            key={label}
+            aria-label={label}
+            aria-current={pages.includes(page) ? "page" : undefined}
+            className={pages.includes(page) ? "active" : ""}
+            onClick={() => navigate(pages[0])}
+          >
+            <span>
+              <Icon size={22} />
+              {((label === "派单" && alerts.length > 0) ||
+                (label === "我的" && backup.show)) && <i />}
+            </span>
+            {label}
+          </button>
+        ))}
+      </nav>
       <input
         ref={importRef}
         type="file"
@@ -2458,6 +2476,29 @@ export default function App() {
         className="hidden"
         onChange={importFile}
       />
+      {modal?.type === "day" && (
+        <Modal
+          className="day-agenda-modal"
+          title={`${Number(selected.slice(5, 7))} 月 ${Number(selected.slice(8))} 日安排`}
+          subtitle={`${new Date(selected + "T12:00:00").toLocaleDateString("zh-CN", { weekday: "long" })} · ${calendarField === "shootDate" ? "拍摄安排" : "派单沟通"} · ${selectedOrders.length} 场`}
+          onClose={() => setModal(null)}
+        >
+          <DayAgenda
+            orders={selectedOrders}
+            partners={data.partners}
+            field={calendarField}
+            onOpen={(order) =>
+              setModal({ type: "detail", value: order, returnToDay: true })
+            }
+            onNew={() =>
+              newOrder(
+                selected,
+                calendarField === "communicatedDate" ? selected : undefined,
+              )
+            }
+          />
+        </Modal>
+      )}
       {modal?.type === "order" && (
         <OrderForm
           order={modal.value}
@@ -2485,7 +2526,7 @@ export default function App() {
             data.orders.find((o) => o.id === modal.value.id) || modal.value
           }
           partner={partner(modal.value.partnerId)}
-          onClose={() => setModal(null)}
+          onClose={() => setModal(modal.returnToDay ? { type: "day" } : null)}
           onEdit={() =>
             setModal({
               type: "order",

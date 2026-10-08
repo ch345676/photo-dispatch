@@ -41,10 +41,7 @@ await page.getByLabel("定金支付日期").fill("2026-10-08");
 await page.getByRole("button", { name: "保存派单", exact: true }).click();
 await page.getByRole("status").filter({ hasText: "派单已保存" }).waitFor();
 await page.reload();
-await page
-  .getByRole("button", { name: "全部订单", exact: false })
-  .first()
-  .click();
+await page.getByRole("button", { name: "派单", exact: true }).first().click();
 await page
   .getByRole("button", { name: "验收婚礼拍摄", exact: false })
   .first()
@@ -69,7 +66,7 @@ await page
   .click();
 await page.getByRole("dialog").getByText("已结账", { exact: true }).waitFor();
 await page.getByRole("button", { name: "关闭", exact: true }).click();
-await page.getByRole("button", { name: "数据与设置", exact: true }).click();
+await page.getByRole("button", { name: "我的", exact: true }).click();
 const dl = page.waitForEvent("download");
 await page.getByRole("button", { name: "导出完整备份" }).click();
 await (await dl).saveAs("test-results/backup.json");
@@ -79,7 +76,7 @@ await page
 await page.getByRole("button", { name: "确认恢复", exact: true }).click();
 await page.getByRole("status").filter({ hasText: "备份已恢复" }).waitFor();
 await page.getByRole("button", { name: "查看演示空间", exact: true }).click();
-await page.getByRole("button", { name: "工作台", exact: true }).click();
+await page.getByRole("button", { name: "业务概览", exact: true }).click();
 await page.getByRole("button", { name: "关闭提示", exact: true }).click();
 await page.setViewportSize({ width: 390, height: 844 });
 await page.screenshot({
@@ -91,8 +88,7 @@ const overflow = await page.evaluate(
   () => document.documentElement.scrollWidth > innerWidth,
 );
 if (overflow) throw new Error("Mobile document overflows");
-await page.getByRole("button", { name: "打开导航", exact: true }).click();
-await page.getByRole("button", { name: "派单日历", exact: true }).click();
+await page.getByRole("button", { name: "日历", exact: true }).click();
 await page.getByRole("button", { name: "按沟通日期", exact: true }).click();
 await page.screenshot({
   path: "test-results/mobile-calendar.png",
