@@ -2233,6 +2233,118 @@ tbody tr:hover {
   min-height: 44px;
   flex-shrink: 0;
 }
+.order-progress {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  padding: 18px;
+  margin-bottom: 22px;
+  border: 1px solid #deebef;
+  border-radius: 16px;
+  background: #f0f7fa;
+}
+.order-progress > div {
+  flex: 1 1 240px;
+  min-width: 0;
+}
+.order-progress h3 {
+  font-size: 13px;
+  font-weight: 500;
+  color: #48758b;
+  margin: 0 0 6px;
+}
+.order-progress p {
+  font-size: 12px;
+  line-height: 1.7;
+  color: #74878f;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.progress-action {
+  min-height: 44px;
+  background: #e9f0d5;
+  border-color: #dce6c2;
+  flex-shrink: 0;
+}
+.progress-action:disabled {
+  background: #edf0ed;
+  color: #909b91;
+  cursor: not-allowed;
+}
+.status-confirm-body {
+  padding: 24px 28px;
+  overflow-wrap: anywhere;
+}
+.status-confirm-body h3 {
+  margin: 0 0 20px;
+  font-size: 18px;
+  line-height: 1.6;
+  font-weight: 500;
+}
+.status-facts {
+  display: grid;
+  gap: 15px;
+  margin: 0;
+}
+.status-facts > div {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 14px;
+  font-size: 13px;
+  line-height: 1.7;
+}
+.status-facts dt {
+  color: #8a998b;
+}
+.status-facts dd {
+  margin: 0;
+}
+.status-facts small {
+  display: block;
+  color: #8a998b;
+}
+.status-transition {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 24px;
+  padding: 14px;
+  border-radius: 12px;
+  background: #f0f5e6;
+  color: #6e8551;
+  font-size: 12px;
+}
+.status-transition strong {
+  font-weight: 500;
+}
+.status-confirm-note {
+  margin: 16px 0 0;
+  font-size: 12px;
+  line-height: 1.8;
+  color: #849082;
+}
+.status-confirm-footer button {
+  min-height: 44px;
+}
+@media (max-width: 600px) {
+  .order-progress {
+    padding: 16px;
+    gap: 12px;
+  }
+  .progress-action {
+    width: 100%;
+  }
+  .status-confirm-body {
+    padding: 22px 20px;
+  }
+  .status-facts > div {
+    grid-template-columns: 65px minmax(0, 1fr);
+    gap: 10px;
+  }
+}
 .copy-order-hint {
   display: block;
   overflow-wrap: anywhere;

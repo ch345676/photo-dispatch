@@ -11,6 +11,7 @@
 1. 在「合作伙伴」添加摄影师及联系方式，在「场地管理」记录城市、酒店和多个宴会厅。
 2. 新建派单，分别记录派单沟通日期和实际拍摄日期、拍摄时段、伙伴、场地与具体厅。
    经常合作的同类拍摄可打开已有订单详情，点击「复制派单」，补填新主题与拍摄日期后保存。
+   伙伴确认后，在详情点击「确认派单」核对安排；实际拍摄结束后点击「标记拍摄完成」，随后继续处理未结费用。
 3. 拍摄费用与报销车费分列，记录定金约定及已有支付情况。后续每次支付定金或尾款时使用「登记付款」，在订单详情查看逐笔流水。
 4. 按日期、伙伴、场地、展厅、类型、定金与结算状态筛选；在日历切换拍摄日期或沟通日期。
 5. 在「数据与设置」定期导出 JSON 完整备份；CSV 明细可用于表格核对。
@@ -28,6 +29,7 @@
 - 约定定金为零显示「无需定金」；应付合计为零显示「无需结账」。金额按分计算，禁止超额付款、负数和超过两位小数。
 - 本月统计统一按拍摄月份计算，取消及拒绝订单不计入此排期口径；其实际余额仍可从「费用结算 → 待结账」处理。
 - 同一伙伴的拍摄时段冲突会阻止新派单或改期。已有历史冲突不影响补登记付款。
+- 详情支持快捷确认当前安排与标记拍摄完成，操作前展示伙伴、日期 / 时段、场地、车费及待结金额。确认会检查档期冲突；完成仅适用于拍摄日期已到的「已确认 / 待拍摄」订单，历史重叠档期不阻止补记完成。改期订单可核对当前日期后重新确认；取消 / 拒绝订单需通过编辑重新安排。快捷操作保留车费、全部付款流水及备注，完成不会自动结账，未结费用继续提醒。
 - 改期保留沟通日期并把原拍摄日期记入备注；取消保留所有历史付款信息。
 - 提醒含前 3 天、前 1 天、当天拍摄、未确认、未付定金、完成后未结清与改期取消。提醒在网页打开时计算；没有后台推送。
 - 演示和个人空间分离；同步同一浏览器的标签页，检测过期写入，避免覆盖其他页面已保存的数据。
@@ -55,7 +57,7 @@ pnpm test
 pnpm build
 ```
 
-浏览器验收：安装 Playwright Chromium 后，启动 `pnpm dev --port 5188`，执行 `node scripts/qa.mjs`、`node scripts/regression.mjs`、`node scripts/mobile-orders.mjs`、`node scripts/payment-ledger.mjs`、`node scripts/duplicate-order.mjs`、`node scripts/backup-reminder.mjs` 与 `node scripts/import-preview.mjs`。可用 `QA_BROWSER_CHANNEL=msedge` 指定本机 Edge，否则使用 Playwright Chromium；`QA_BASE_URL` 可指定验收地址。导入预览脚本还支持 `QA_PROXY_SERVER`，需要代理访问线上站点时可显式传入本机系统代理。脚本只操作独立测试浏览器，截图与备份仅写入忽略的 `test-results/`。
+浏览器验收：安装 Playwright Chromium 后，启动 `pnpm dev --port 5188`，执行 `node scripts/qa.mjs`、`node scripts/regression.mjs`、`node scripts/mobile-orders.mjs`、`node scripts/payment-ledger.mjs`、`node scripts/duplicate-order.mjs`、`node scripts/backup-reminder.mjs`、`node scripts/import-preview.mjs` 与 `node scripts/order-status.mjs`。可用 `QA_BROWSER_CHANNEL=msedge` 指定本机 Edge，否则使用 Playwright Chromium；`QA_BASE_URL` 可指定验收地址。导入预览和快捷状态脚本还支持 `QA_PROXY_SERVER`，需要代理访问线上站点时可显式传入本机系统代理。脚本只操作独立测试浏览器，截图与备份仅写入忽略的 `test-results/`。
 
 GitHub Actions 在主分支推送后运行单元测试及生产构建，成功后发布到 GitHub Pages。相对资源路径和 hash 导航兼容仓库子路径。
 

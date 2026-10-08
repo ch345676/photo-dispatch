@@ -74,6 +74,7 @@ import {
   backupStatus,
 } from "./backup.mjs";
 import { summarizeBackup } from "./import-preview.mjs";
+import { orderStatusActions, transitionOrderStatus } from "./order-status.mjs";
 
 const NAV = [
   ["overview", "工作台", LayoutDashboard],
@@ -885,6 +886,41 @@ export default function App() {
       return true;
     }
     return false;
+  }
+  function updateOrderStatus(order, action) {
+    try {
+      const current = data.orders.find((o) => o.id === order.id);
+      if (!current || JSON.stringify(current) !== JSON.stringify(order)) {
+        setModal(null);
+        notify("这场派单已被更新，请重新打开后操作");
+        return;
+      }
+      const raw = localStorage.getItem(STORAGE + mode);
+      if (raw === "" || (raw === null && mode === "personal")) {
+        notify("当前本地记录无法读取，请先在数据设置中恢复备份");
+        return;
+      }
+      const nextOrder = transitionOrderStatus(order, action, {
+        partners: data.partners,
+        orders: data.orders,
+      });
+      const saved = { ...nextOrder, updatedAt: new Date().toISOString() };
+      if (
+        persist({
+          ...data,
+          orders: data.orders.map((o) => (o.id === saved.id ? saved : o)),
+        })
+      ) {
+        setModal({ type: "detail", value: saved });
+        notify(
+          action === "confirm"
+            ? "派单已确认"
+            : `已标记拍摄完成，待结金额 ¥ ${money(balance(saved))}`,
+        );
+      }
+    } catch (error) {
+      notify(error.message);
+    }
   }
   function deleteOrder(o) {
     setModal({
@@ -2269,6 +2305,10 @@ export default function App() {
             })
           }
           onDelete={() => deleteOrder(modal.value)}
+          onStatus={(action) => {
+            const order = data.orders.find((o) => o.id === modal.value.id);
+            if (order) setModal({ type: "order-status", value: order, action });
+          }}
           onCopy={() => {
             const source = data.orders.find((o) => o.id === modal.value.id);
             if (source)
@@ -2300,6 +2340,15 @@ export default function App() {
                 data.orders.find((o) => o.id === modal.value.id) || modal.value,
             })
           }
+        />
+      )}
+      {modal?.type === "order-status" && (
+        <OrderStatusConfirmation
+          order={modal.value}
+          partner={partner(modal.value.partnerId)}
+          action={modal.action}
+          onClose={() => setModal({ type: "detail", value: modal.value })}
+          onConfirm={() => updateOrderStatus(modal.value, modal.action)}
         />
       )}
       {modal?.type === "payment" && (
@@ -2932,7 +2981,11 @@ function OrderDetail({
   onPay,
   onVoid,
   onBaseline,
+  onStatus,
 }) {
+  const actions = orderStatusActions(o);
+  const awaitingShoot =
+    o.dispatchStatus === "已确认" && o.executionStatus === "待拍摄";
   return (
     <Modal
       title="派单详情"
@@ -2963,6 +3016,45 @@ function OrderDetail({
             复制派单
           </button>
         </div>
+        <section className="order-progress" aria-label="派单进度">
+          <div>
+            <h3>
+              {o.executionStatus === "已完成" ? "拍摄已完成" : "下一步安排"}
+            </h3>
+            <p>
+              {actions.confirm
+                ? "与伙伴核对当前日期、时段和场地后，确认这场派单。"
+                : awaitingShoot
+                  ? actions.complete
+                    ? "实际拍摄结束后标记完成，未结款项继续保留。"
+                    : `拍摄日期为 ${o.shootDate}，到拍摄当天可标记完成。`
+                  : o.executionStatus === "已完成"
+                    ? balance(o) > 0
+                      ? `仍有 ¥ ${money(balance(o))} 待结，可继续登记付款。`
+                      : "这场拍摄已完成，费用已无待结余额。"
+                    : "如需重新安排，请编辑派单并核对日期与伙伴。"}
+            </p>
+          </div>
+          {actions.confirm && (
+            <button
+              className="button progress-action"
+              onClick={() => onStatus("confirm")}
+            >
+              <Check size={17} />
+              确认派单
+            </button>
+          )}
+          {awaitingShoot && (
+            <button
+              className="button progress-action"
+              disabled={!actions.complete}
+              onClick={() => onStatus("complete")}
+            >
+              <CheckCheck size={17} />
+              标记拍摄完成
+            </button>
+          )}
+        </section>
         <div className="detail-block">
           <div>
             <CalendarDays size={19} />
@@ -3059,6 +3151,85 @@ function OrderDetail({
             登记付款
           </button>
         </div>
+      </div>
+    </Modal>
+  );
+}
+function OrderStatusConfirmation({
+  order: o,
+  partner: p,
+  action,
+  onClose,
+  onConfirm,
+}) {
+  const confirming = action === "confirm";
+  return (
+    <Modal
+      title={confirming ? "确认派单" : "标记拍摄完成"}
+      subtitle={
+        confirming ? "请核对伙伴已确认的拍摄安排。" : "请在实际拍摄结束后确认。"
+      }
+      onClose={onClose}
+    >
+      <div className="status-confirm-body">
+        <h3>{o.title}</h3>
+        <dl className="status-facts">
+          <div>
+            <dt>合作伙伴</dt>
+            <dd>{p?.name}</dd>
+          </div>
+          <div>
+            <dt>拍摄时间</dt>
+            <dd>
+              {o.shootDate}
+              <br />
+              {o.startTime} – {o.endTime}
+            </dd>
+          </div>
+          <div>
+            <dt>拍摄地点</dt>
+            <dd>
+              {o.city} · {o.venue}
+              <br />
+              {o.hall}
+            </dd>
+          </div>
+          <div>
+            <dt>报销车费</dt>
+            <dd>
+              ¥ {money(o.travelAmount || 0)}
+              <small>{o.travelNote || "无车费说明"}</small>
+            </dd>
+          </div>
+          <div>
+            <dt>待结金额</dt>
+            <dd>¥ {money(balance(o))}</dd>
+          </div>
+        </dl>
+        <div className="status-transition">
+          <span>
+            {confirming
+              ? `${o.dispatchStatus} · ${o.executionStatus}`
+              : o.executionStatus}
+          </span>
+          <ArrowRight size={17} />
+          <strong>{confirming ? "已确认 · 待拍摄" : "已完成"}</strong>
+        </div>
+        <p className="status-confirm-note">
+          {confirming
+            ? "确认后按上述日期和时段安排拍摄。"
+            : "完成后仍可登记付款，待结款项会继续提醒。"}
+          车费、已付款及流水记录保持不变。
+        </p>
+      </div>
+      <div className="modal-footer status-confirm-footer">
+        <button className="button" onClick={onClose}>
+          返回详情
+        </button>
+        <button className="button primary" onClick={onConfirm}>
+          <Check size={17} />
+          {confirming ? "确认派单" : "确认完成"}
+        </button>
       </div>
     </Modal>
   );
