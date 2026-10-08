@@ -37,6 +37,7 @@
 - 改期保留沟通日期并把原拍摄日期记入备注；取消保留所有历史付款信息。
 - 提醒含前 3 天、前 1 天、当天拍摄、未确认、未付定金、完成后未结清与改期取消。提醒在网页打开时计算；没有后台推送。
 - 演示和个人空间分离；同步同一浏览器的标签页，检测过期写入，避免覆盖其他页面已保存的数据。
+- 浏览器中已保存的记录被删除、清空或损坏时，订单、付款、伙伴、场地与提醒设置均暂停保存，保留页面已载入内容及当前表单。首次使用的空空间仍可正常开始记录；已有记录的空间异常时先恢复，再切换空间，防止丢失页面中的副本。
 - 备份提醒按空间独立记录。「明天提醒」暂缓至北京时间次日零点；设置页显示最近发起完整备份导出的时间，恢复备份后建议重新导出。空白空间和演示空间不显示工作台备份提醒，CSV 与原始存储下载不更新完整备份记录。
 - 导入有效备份后，先并排核对当前空间与文件中的订单 / 伙伴 / 场地数量、拍摄日期范围、拍摄费、车费、定金、尾款和待结金额。汇总包含取消 / 拒绝订单的实际欠款，付款流水不重复计入。预览和取消均不改变数据；确认后才完整替换当前空间。
 
@@ -50,6 +51,8 @@
 
 恢复预览显示文件名及文件标注的来源、版本、导出时间。空备份会明确提示清空业务记录，演示文件恢复到个人空间时会提示来源；本机数据损坏，或存储缺失但页面仍有记录时，当前汇总显示「无法读取」，仍可用有效备份恢复。确认前如果当前存储发生变化，必须重新选择文件核对，避免覆盖预览之后的新记录。
 
+若页面提示暂停保存，请在刷新或关闭网页前进入「数据与设置」，点击「导出页面记录」保留当前页面已成功载入的内容，再选择该文件导入并核对恢复。页面记录可能不是最新版本，也不包含未保存的表单修改；此下载不更新完整备份时间，恢复后请重新导出完整备份。初次打开就无法读取数据的空间不提供页面记录导出，可下载原始存储文件并用已有有效备份恢复；原始内容为空字符串时按原文下载，没有原始记录时不会生成假备份。
+
 ## 开发
 
 要求 Node.js 22.13+、pnpm 10.32.1。
@@ -61,7 +64,7 @@ pnpm test
 pnpm build
 ```
 
-浏览器验收：安装 Playwright Chromium 后，启动 `pnpm dev --port 5188`，执行 `node scripts/qa.mjs`、`node scripts/regression.mjs`、`node scripts/mobile-orders.mjs`、`node scripts/payment-ledger.mjs`、`node scripts/duplicate-order.mjs`、`node scripts/backup-reminder.mjs`、`node scripts/import-preview.mjs`、`node scripts/order-status.mjs` 与 `node scripts/payment-report.mjs`。可用 `QA_BROWSER_CHANNEL=msedge` 指定本机 Edge，否则使用 Playwright Chromium；`QA_BASE_URL` 可指定验收地址。导入预览、快捷状态和付款报表脚本还支持 `QA_PROXY_SERVER`，需要代理访问线上站点时可显式传入本机系统代理。脚本只操作独立测试浏览器，截图与备份仅写入忽略的 `test-results/`。
+浏览器验收：安装 Playwright Chromium 后，启动 `pnpm dev --port 5188`，执行 `node scripts/qa.mjs`、`node scripts/regression.mjs`、`node scripts/mobile-orders.mjs`、`node scripts/payment-ledger.mjs`、`node scripts/duplicate-order.mjs`、`node scripts/backup-reminder.mjs`、`node scripts/import-preview.mjs`、`node scripts/order-status.mjs`、`node scripts/payment-report.mjs` 与 `node scripts/storage-guard.mjs`。可用 `QA_BROWSER_CHANNEL=msedge` 指定本机 Edge，否则使用 Playwright Chromium；`QA_BASE_URL` 可指定验收地址。导入预览、快捷状态、付款报表和存储保护脚本还支持 `QA_PROXY_SERVER`，需要代理访问线上站点时可显式传入本机系统代理。脚本只操作独立测试浏览器，截图与备份仅写入忽略的 `test-results/`。
 
 GitHub Actions 在主分支推送后运行单元测试及生产构建，成功后发布到 GitHub Pages。相对资源路径和 hash 导航兼容仓库子路径。
 

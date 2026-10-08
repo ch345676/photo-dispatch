@@ -76,6 +76,7 @@ import {
 import { summarizeBackup } from "./import-preview.mjs";
 import { orderStatusActions, transitionOrderStatus } from "./order-status.mjs";
 import PaymentReport from "./PaymentReport.jsx";
+import { inspectBusinessStorage } from "./storage-guard.mjs";
 
 const NAV = [
   ["overview", "工作台", LayoutDashboard],
@@ -134,24 +135,28 @@ function backupTime(value) {
 }
 function readInitial() {
   let mode = "demo";
+  let raw = null;
   try {
     mode =
       localStorage.getItem(STORAGE + "mode") === "personal"
         ? "personal"
         : "demo";
-    const raw = localStorage.getItem(STORAGE + mode);
+    raw = localStorage.getItem(STORAGE + mode);
     return {
       mode,
-      data: raw
-        ? validateBackup(JSON.parse(raw))
-        : mode === "demo"
-          ? demoData()
-          : emptyData(),
+      raw,
+      data:
+        raw !== null
+          ? validateBackup(JSON.parse(raw))
+          : mode === "demo"
+            ? demoData()
+            : emptyData(),
       error: "",
     };
   } catch {
     return {
       mode,
+      raw,
       data: emptyData(),
       error:
         "本地数据读取失败。原数据未覆盖，请先在设置中下载原始数据备份，再恢复备份。",
@@ -398,6 +403,8 @@ export default function App() {
     readBackupMeta(initial.mode),
   );
   const [backupNow, setBackupNow] = useState(Date.now);
+  const storageSnapshot = useRef(initial.raw);
+  const [hasPageSnapshot, setHasPageSnapshot] = useState(!initial.error);
   const backup = backupStatus(data, mode, backupMeta, backupNow);
   const [page, setPage] = useState(() =>
     NAV.some((n) => n[0] === location.hash.slice(1)) ||
@@ -458,17 +465,29 @@ export default function App() {
   }, []);
   useEffect(() => {
     const h = (e) => {
-      if (e.key === backupKey(mode)) {
+      if (e.key === backupKey(mode) || e.key === null) {
         setBackupMeta(readBackupMeta(mode));
         setBackupNow(Date.now());
       }
-      if (e.key === STORAGE + mode && e.newValue) {
+      if (e.key === STORAGE + mode || e.key === null) {
         try {
-          setData(validateBackup(JSON.parse(e.newValue)));
+          if (e.storageArea && e.storageArea !== localStorage) return;
+          // Read current storage: queued events may describe an older value.
+          const raw = localStorage.getItem(STORAGE + mode);
+          if (raw === null) {
+            if (storageSnapshot.current !== null) flagStorageProblem("missing");
+            return;
+          }
+          const latest = validateBackup(JSON.parse(raw));
+          storageSnapshot.current = raw;
+          setData(latest);
+          setHasPageSnapshot(true);
+          setStorageError("");
+          importRequest.current++;
           setModal(null);
           notify("数据已与另一标签页同步，请重新打开要编辑的记录");
         } catch {
-          setStorageError("另一标签页的数据无法读取，请先备份。");
+          flagStorageProblem("invalid");
         }
       }
     };
@@ -490,24 +509,60 @@ export default function App() {
     if (!saveBackupMeta({ snoozedUntil: nextBackupReminder() }))
       notify("本次已暂缓提醒，但浏览器未保存提醒时间；重新打开后可能再次显示");
   }
-  function persist(next, force = false) {
-    if (storageError && !force) {
-      notify("请先在数据设置中导出原始数据并恢复备份");
+  function flagStorageProblem(kind) {
+    const message =
+      kind === "missing"
+        ? "本地记录已被移除，已暂停保存。页面已载入的记录仍保留，请前往数据设置导出页面记录并恢复备份。"
+        : "本地数据无法读取，已暂停保存。页面已载入的记录仍保留，请前往数据设置保留文件并恢复备份。";
+    setStorageError(message);
+    notify(message);
+  }
+  function persist(next, restoreSnapshot = undefined) {
+    let stored;
+    try {
+      stored = localStorage.getItem(STORAGE + mode);
+    } catch {
+      flagStorageProblem("invalid");
       return false;
     }
-    try {
-      const stored = localStorage.getItem(STORAGE + mode);
-      if (stored && !force) {
-        const latest = validateBackup(JSON.parse(stored));
-        if (JSON.stringify(latest) !== JSON.stringify(data)) {
-          setData(latest);
-          setModal(null);
-          notify("数据已在其他页面更新，请重新打开记录再修改");
-          return false;
-        }
+    if (restoreSnapshot !== undefined) {
+      if (stored !== restoreSnapshot) {
+        importRequest.current++;
+        setModal(null);
+        notify("当前空间数据已变化，请重新选择备份核对后恢复");
+        return false;
       }
-      localStorage.setItem(STORAGE + mode, JSON.stringify(next));
+    } else {
+      const check = inspectBusinessStorage(
+        stored,
+        storageSnapshot.current,
+        data,
+      );
+      if (
+        check.kind === "missing" ||
+        check.kind === "invalid" ||
+        (stored === null && storageError)
+      ) {
+        flagStorageProblem(check.kind === "invalid" ? "invalid" : "missing");
+        return false;
+      }
+      if (check.kind === "changed") {
+        storageSnapshot.current = stored;
+        setData(check.data);
+        setHasPageSnapshot(true);
+        setStorageError("");
+        importRequest.current++;
+        setModal(null);
+        notify("数据已在其他页面更新，请重新打开记录再修改");
+        return false;
+      }
+    }
+    try {
+      const serialized = JSON.stringify(next);
+      localStorage.setItem(STORAGE + mode, serialized);
+      storageSnapshot.current = serialized;
       setData(next);
+      setHasPageSnapshot(true);
       setStorageError("");
       return true;
     } catch {
@@ -525,28 +580,72 @@ export default function App() {
     setPartnerView("");
   }
   function switchMode(next) {
+    let currentRaw;
     try {
+      currentRaw = localStorage.getItem(STORAGE + mode);
+    } catch {
+      flagStorageProblem("invalid");
+      navigate("settings");
+      return;
+    }
+    try {
+      const currentCheck = inspectBusinessStorage(
+        currentRaw,
+        storageSnapshot.current,
+        data,
+      );
+      if (
+        hasPageSnapshot &&
+        (currentCheck.kind === "missing" ||
+          currentCheck.kind === "invalid" ||
+          (currentRaw === null && storageError))
+      ) {
+        flagStorageProblem(
+          currentCheck.kind === "invalid" ? "invalid" : "missing",
+        );
+        navigate("settings");
+        notify(
+          "请先导出页面记录并恢复当前空间，再切换空间，以免丢失页面中的记录",
+        );
+        return;
+      }
       const raw = localStorage.getItem(STORAGE + next);
-      const nextData = raw
-        ? validateBackup(JSON.parse(raw))
-        : next === "demo"
-          ? demoData()
-          : emptyData();
+      let nextData;
+      let nextError = "";
+      try {
+        nextData =
+          raw !== null
+            ? validateBackup(JSON.parse(raw))
+            : next === "demo"
+              ? demoData()
+              : emptyData();
+      } catch {
+        nextData = emptyData();
+        nextError =
+          "此空间的本地数据无法读取，原文未覆盖。请下载原始存储文件，并导入有效备份恢复。";
+      }
       localStorage.setItem(STORAGE + "mode", next);
       importRequest.current++;
+      storageSnapshot.current = raw;
       setData(nextData);
+      setHasPageSnapshot(!nextError);
       setMode(next);
       setBackupMeta(readBackupMeta(next));
       setBackupNow(Date.now());
-      setStorageError("");
+      setStorageError(nextError);
       setModal(null);
+      if (nextError) {
+        navigate("settings");
+        notify("已进入目标空间的恢复页面，原始数据保持不变");
+        return;
+      }
       notify(
         next === "personal"
           ? "已进入个人空间，开始记录你的第一场拍摄吧"
           : "已切换到演示空间",
       );
     } catch {
-      notify("无法切换：目标空间数据读取失败，请先下载原始备份");
+      notify("无法切换：目标空间或浏览器存储权限不可用，当前页面记录仍保留");
     }
   }
   const partner = (id) => data.partners.find((p) => p.id === id);
@@ -626,9 +725,11 @@ export default function App() {
       const raw = localStorage.getItem(STORAGE + mode);
       if (
         raw === null &&
-        mode === "personal" &&
-        (data.orders.length || data.partners.length || data.venues.length)
+        (storageSnapshot.current !== null ||
+          (mode === "personal" &&
+            (data.orders.length || data.partners.length || data.venues.length)))
       ) {
+        flagStorageProblem("missing");
         notify(
           "本地存储记录已被移除，暂不导出空备份。页面中的记录仍保留，请先核对浏览器存储情况",
         );
@@ -656,6 +757,30 @@ export default function App() {
       notify(
         "完整备份导出失败，未更新导出记录。请检查浏览器下载设置；若数据损坏，请先下载原始存储文件",
       );
+    }
+  }
+  function exportPageRecords() {
+    if (!hasPageSnapshot) return;
+    try {
+      const snapshot = validateBackup(data);
+      download(
+        JSON.stringify(
+          {
+            ...snapshot,
+            space: mode,
+            exportedAt: new Date().toISOString(),
+            recoverySource: "page",
+          },
+          null,
+          2,
+        ),
+        `拾光页面记录-${mode === "personal" ? "个人" : "演示"}-${today()}.json`,
+      );
+      notify(
+        "已导出页面已载入的记录，不含未保存的表单修改；请核对文件后通过导入备份恢复",
+      );
+    } catch {
+      notify("页面记录导出失败，请检查浏览器下载设置");
     }
   }
   function exportCSV(rows) {
@@ -756,7 +881,8 @@ export default function App() {
       try {
         const missingStoredData =
           snapshot === null &&
-          (storageError ||
+          (storageSnapshot.current !== null ||
+            storageError ||
             (mode === "personal" &&
               (data.orders.length ||
                 data.partners.length ||
@@ -790,18 +916,7 @@ export default function App() {
         },
         onConfirm: () => {
           if (request !== importRequest.current) return;
-          try {
-            if (localStorage.getItem(STORAGE + mode) !== snapshot) {
-              importRequest.current++;
-              setModal(null);
-              notify("当前空间数据已变化，请重新选择备份核对后恢复");
-              return;
-            }
-          } catch {
-            notify("无法读取当前存储，未恢复备份；请检查浏览器存储权限");
-            return;
-          }
-          if (persist(d, true)) {
+          if (persist(d, snapshot)) {
             setModal(null);
             const recorded = saveBackupMeta({
               lastRestoredAt: new Date().toISOString(),
@@ -896,11 +1011,6 @@ export default function App() {
       if (!current || JSON.stringify(current) !== JSON.stringify(order)) {
         setModal(null);
         notify("这场派单已被更新，请重新打开后操作");
-        return;
-      }
-      const raw = localStorage.getItem(STORAGE + mode);
-      if (raw === "" || (raw === null && mode === "personal")) {
-        notify("当前本地记录无法读取，请先在数据设置中恢复备份");
         return;
       }
       const nextOrder = transitionOrderStatus(order, action, {
@@ -1495,8 +1605,14 @@ export default function App() {
             </div>
           )}
           {storageError && (
-            <div className="error-banner" role="alert">
-              {storageError}
+            <div className="error-banner storage-alert" role="alert">
+              <span>{storageError}</span>
+              {page !== "settings" && (
+                <button className="button" onClick={() => navigate("settings")}>
+                  前往数据设置
+                  <ArrowRight size={15} />
+                </button>
+              )}
             </div>
           )}
           {page === "overview" && backup.show && !storageError && (
@@ -2208,17 +2324,46 @@ export default function App() {
                     导入备份
                   </button>
                 </div>
+                {storageError && (
+                  <section
+                    className="storage-recovery"
+                    aria-label="页面记录恢复"
+                  >
+                    <h3>
+                      <HardDrive size={18} />
+                      先保留页面中的记录
+                    </h3>
+                    <p>
+                      {hasPageSnapshot
+                        ? "可导出本页已成功载入的订单、付款、伙伴、场地和设置，再选择该文件导入，核对预览后恢复保存。"
+                        : "本页尚未成功载入记录，请选择已有的有效备份恢复。"}
+                    </p>
+                    <p>
+                      页面记录可能不是最新内容，不含尚未保存的表单修改。刷新或关闭网页前请先保留文件。此下载不更新完整备份时间；恢复后请重新导出完整备份。
+                    </p>
+                    <button
+                      className="button"
+                      disabled={!hasPageSnapshot}
+                      onClick={exportPageRecords}
+                    >
+                      <Download size={16} />
+                      导出页面记录
+                    </button>
+                  </section>
+                )}
                 <button
                   className="text-button raw-backup"
                   onClick={() => {
-                    let raw;
                     try {
-                      raw = localStorage.getItem(STORAGE + mode) || "{}";
+                      const raw = localStorage.getItem(STORAGE + mode);
+                      if (raw === null) {
+                        notify("当前空间没有可下载的原始存储文件");
+                        return;
+                      }
+                      download(raw, `拾光原始数据-${today()}.json`);
                     } catch {
-                      notify("浏览器禁止读取存储");
-                      return;
+                      notify("原始存储下载失败，请检查浏览器存储和下载权限");
                     }
-                    download(raw, `拾光原始数据-${today()}.json`);
                   }}
                 >
                   下载原始存储文件

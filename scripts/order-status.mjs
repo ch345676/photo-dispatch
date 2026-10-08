@@ -545,7 +545,7 @@ try {
           );
           const before = await snapshot();
           await submit(action);
-          await notice("当前本地记录无法读取");
+          await notice(removed ? "本地记录已被移除" : "本地数据无法读取");
           assert.deepEqual(await snapshot(), before);
           assert.equal(await raw(storageKeys.personal), removed ? null : "");
         }
