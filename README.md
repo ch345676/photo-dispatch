@@ -101,3 +101,7 @@ GitHub Actions 在主分支推送后运行单元测试及生产构建，成功�
 视觉参考用户指定的 [智慧农业移动端](https://ch345676.github.io/digital-agri/m/#overview)：天空蓝、淡蓝纸色、白色圆角卡片与淡黄绿色强调。
 
 效率与动画验收：`node scripts/workflow.mjs`，覆盖草稿恢复与跨标签保护、未知车费付款确认、补录金额、改期留痕、微信复制、对账 CSV、回收站备份恢复、390 / 360px 布局和减少动态效果。
+
+Mac 开发与打包：`pnpm build:desktop` 后执行 `pnpm desktop`；`pnpm test:desktop` 使用独立临时目录验收，不打开真实数据。macOS 上运行 `pnpm package:mac` 生成 Universal DMG / ZIP，或触发 `Build and verify Mac installer` 工作流。推送版本标签后，工作流必须通过单元测试、双架构与签名 / DMG 校验、实际打包应用交互验收才会发布 GitHub Release。安装包只收录应用源码与构建资源，不带测试目录或用户数据。
+
+新视觉验收：`node scripts/studio-qa.mjs` 检查空白欢迎页、1512 / 390 / 360px 布局、点击波纹、动效偏好持久化和系统减少动态效果。

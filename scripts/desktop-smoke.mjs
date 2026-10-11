@@ -101,6 +101,28 @@ try {
   await app.context().setOffline(true);
   await page.reload();
   await page.locator(".studio-welcome").waitFor();
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].setSize(1000, 780),
+  );
+  await page.waitForFunction(() => innerWidth <= 1000);
+  await page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      ),
+  );
+  assert.equal(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+    false,
+  );
+  assert.equal(
+    await page
+      .locator(".brand")
+      .evaluate((el) => el.scrollWidth > el.clientWidth),
+    false,
+  );
   await shot("fresh");
   await button("我的").click();
   assert.equal(await button("查看演示空间").count(), 0);
@@ -201,6 +223,22 @@ try {
   assert.deepEqual((await read()).orders, data.orders);
   assert.equal((await read()).partners.length, 1);
   await button("日历").click();
+  await app.evaluate(({ BrowserWindow }) =>
+    BrowserWindow.getAllWindows()[0].setSize(880, 720),
+  );
+  await page.waitForFunction(() => innerWidth <= 880);
+  await page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      ),
+  );
+  assert.equal(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth > innerWidth,
+    ),
+    false,
+  );
   await shot("persisted");
   await app.close();
   app = null;

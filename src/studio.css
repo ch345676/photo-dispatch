@@ -588,6 +588,48 @@ body {
     font-size: 12px;
   }
 }
+@media (min-width: 761px) and (max-width: 1100px) {
+  .studio-app .sidebar {
+    width: 200px;
+    padding: 24px 12px 0;
+  }
+  .studio-app .main-shell {
+    margin-left: 200px;
+  }
+  .studio-app .brand {
+    padding: 0;
+    gap: 8px;
+  }
+  .studio-app .brand-mark {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+  }
+  .studio-app .brand strong {
+    font-size: 18px;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+  .studio-app .brand small {
+    font-size: 6.5px;
+    letter-spacing: 1.3px;
+    white-space: nowrap;
+  }
+  .studio-app .workspace-tag {
+    margin: 22px 0;
+    padding: 11px 8px;
+    gap: 7px;
+  }
+  .studio-app .workspace-tag strong {
+    font-size: 10px;
+    white-space: nowrap;
+  }
+  .studio-app .workspace-icon {
+    width: 24px;
+    height: 26px;
+    flex-shrink: 0;
+  }
+}
 @media (max-width: 760px) {
   .studio-app .sidebar {
     backdrop-filter: none;
