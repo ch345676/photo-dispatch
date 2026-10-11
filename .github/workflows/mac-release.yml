@@ -1,0 +1,63 @@
+name: Build and verify Mac installer
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+concurrency:
+  group: mac-release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  package:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.32.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - name: Build offline Mac app and Universal installer
+        run: pnpm package:mac
+      - name: Verify both CPU architectures, signature and disk image
+        run: |
+          APP='release/mac-universal/拾光派单.app'
+          lipo -verify_arch x86_64 arm64 "$APP/Contents/MacOS/拾光派单"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          hdiutil verify release/*.dmg
+      - name: Test packaged app with temporary empty profiles
+        run: pnpm test:desktop
+        env:
+          SHIGUANG_APP_EXECUTABLE: ${{ github.workspace }}/release/mac-universal/拾光派单.app/Contents/MacOS/拾光派单
+      - name: Prepare checksums and installation guide
+        run: |
+          cp MAC_INSTALL.md release/Mac-Install-Guide.md
+          cd release
+          shasum -a 256 *.dmg *.zip > SHA256SUMS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Shiguang-Mac-Universal
+          path: |
+            release/*.dmg
+            release/*.zip
+            release/SHA256SUMS.txt
+            release/Mac-Install-Guide.md
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Mac-verification-screenshots
+          path: test-results/*.png
+          if-no-files-found: ignore
+      - name: Publish verified installer
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" release/*.dmg release/*.zip release/SHA256SUMS.txt release/Mac-Install-Guide.md --verify-tag --title "拾光派单 $GITHUB_REF_NAME · Mac 个人版" --notes-file MAC_INSTALL.md

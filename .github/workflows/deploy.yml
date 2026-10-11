@@ -23,6 +23,8 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
       - run: pnpm test
       - run: pnpm build
       - uses: actions/configure-pages@v5

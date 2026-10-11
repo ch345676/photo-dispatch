@@ -91,6 +91,13 @@ import {
   TravelForm,
 } from "./WorkflowViews.jsx";
 import "./workflow.css";
+import {
+  desktopEdition,
+  useStudioExperience,
+  WelcomeStudio,
+  MotionSettings,
+  DesktopInfo,
+} from "./StudioExperience.jsx";
 
 const NAV = [
   ["overview", "业务概览", LayoutDashboard],
@@ -199,11 +206,11 @@ function backupTime(value) {
   });
 }
 function readInitial() {
-  let mode = "demo";
+  let mode = desktopEdition ? "personal" : "demo";
   let raw = null;
   try {
     mode =
-      localStorage.getItem(STORAGE + "mode") === "personal"
+      desktopEdition || localStorage.getItem(STORAGE + "mode") === "personal"
         ? "personal"
         : "demo";
     raw = localStorage.getItem(STORAGE + mode);
@@ -303,6 +310,7 @@ function Modal({
     closing.current = true;
     if (
       !window.matchMedia("(prefers-reduced-motion: reduce)").matches &&
+      document.documentElement.dataset.sgMotion !== "calm" &&
       ref.current
     ) {
       try {
@@ -499,6 +507,7 @@ function Calendar({
 }
 
 export default function App() {
+  const [motion, setMotion] = useStudioExperience();
   const [initial] = useState(readInitial),
     [mode, setMode] = useState(initial.mode),
     [data, setData] = useState(initial.data),
@@ -684,6 +693,14 @@ export default function App() {
     return () => clearTimeout(t);
   }, [toast]);
   useEffect(() => {
+    if (!desktopEdition) return;
+    const create = () => {
+      if (!activeModal.current) newOrder(today());
+    };
+    window.addEventListener("shiguang:new-order", create);
+    return () => window.removeEventListener("shiguang:new-order", create);
+  }, [data.partners]);
+  useEffect(() => {
     const h = () => {
       const p = location.hash.slice(1);
       setPage(validPage(p) ? p : "calendar");
@@ -828,6 +845,7 @@ export default function App() {
     setPartnerView("");
   }
   function switchMode(next) {
+    if (desktopEdition && next !== "personal") return;
     let currentRaw;
     try {
       currentRaw = localStorage.getItem(STORAGE + mode);
@@ -1656,7 +1674,8 @@ export default function App() {
   return (
     <div
       className={
-        "app-shell sectioned-app " +
+        "app-shell sectioned-app studio-app " +
+        (desktopEdition ? "desktop-edition " : "") +
         (page === "calendar" ? "calendar-home" : "")
       }
     >
@@ -2052,6 +2071,16 @@ export default function App() {
               </section>
             </>
           )}
+          {page === "calendar" &&
+            mode === "personal" &&
+            !storageError &&
+            data.orders.length === 0 &&
+            !data.trash?.length && (
+              <WelcomeStudio
+                onNew={() => newOrder(today())}
+                onImport={() => importRef.current?.click()}
+              />
+            )}
           {page === "calendar" && (
             <ScheduleCalendar
               orders={data.orders}
@@ -2550,7 +2579,9 @@ export default function App() {
                   </Badge>
                 </div>
                 <p>
-                  数据只保存在当前设备的当前浏览器中。清理浏览器数据会删除记录，请定期导出备份。导入可将数据迁移到另一台设备。
+                  {desktopEdition
+                    ? "数据只保存在这台 Mac 的应用目录中。请定期导出备份；导入可将数据迁移到另一台设备。"
+                    : "数据只保存在当前设备的当前浏览器中。清理浏览器数据会删除记录，请定期导出备份。导入可将数据迁移到另一台设备。"}
                 </p>
                 <div className="storage-facts">
                   <span>
@@ -2689,22 +2720,34 @@ export default function App() {
                 <div className="section-header">
                   <h2>
                     <Camera size={19} />
-                    工作空间
+                    {desktopEdition ? "正式使用" : "工作空间"}
                   </h2>
                 </div>
-                <p>
-                  演示数据和个人数据独立保存，切换空间不会覆盖你的派单记录。演示中的姓名、号码与订单仅用于功能体验。
-                </p>
-                <button
-                  className="button soft"
-                  onClick={() =>
-                    switchMode(mode === "demo" ? "personal" : "demo")
-                  }
-                >
-                  {mode === "demo" ? "进入个人空间" : "查看演示空间"}
-                  <ArrowRight size={16} />
-                </button>
+                {!desktopEdition && (
+                  <>
+                    <p>
+                      演示数据和个人数据独立保存，切换空间不会覆盖你的派单记录。演示中的姓名、号码与订单仅用于功能体验。
+                    </p>
+                    <button
+                      className="button soft"
+                      onClick={() =>
+                        switchMode(mode === "demo" ? "personal" : "demo")
+                      }
+                    >
+                      {mode === "demo" ? "进入个人空间" : "查看演示空间"}
+                      <ArrowRight size={16} />
+                    </button>
+                  </>
+                )}
+                {desktopEdition && (
+                  <p>
+                    当前为 Mac
+                    个人版，从空白空间开始记录。每次打开与更新应用都会保留已保存内容，完整备份可随时导出。
+                  </p>
+                )}
               </section>
+              <MotionSettings motion={motion} onChange={setMotion} />
+              {desktopEdition && <DesktopInfo />}
               <section className="panel settings-card">
                 <div className="section-header">
                   <h2>

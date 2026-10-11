@@ -1,5 +1,7 @@
 node_modules/
 dist/
+dist-desktop/
+release/
 .env*
 !.env.example
 test-results/

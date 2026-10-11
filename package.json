@@ -1,13 +1,17 @@
 {
   "name": "photo-dispatch",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "vite build",
     "preview": "vite preview --host 127.0.0.1",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "build:desktop": "node scripts/build-desktop.mjs",
+    "desktop": "electron .",
+    "package:mac": "pnpm build:desktop && electron-builder --mac --universal --publish never",
+    "test:desktop": "node scripts/desktop-smoke.mjs"
   },
   "dependencies": {
     "lucide-react": "^0.562.0",
@@ -15,9 +19,20 @@
     "react-dom": "^19.2.0"
   },
   "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3",
     "playwright": "^1.64.0",
     "prettier": "^3.9.9",
     "vite": "^7.2.4"
   },
-  "packageManager": "pnpm@10.32.1"
+  "packageManager": "pnpm@10.32.1",
+  "description": "摄影派单、日历、车费与结算的个人本地管理工具",
+  "author": "Shiguang Dispatch",
+  "main": "desktop/main.cjs",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
+  }
 }

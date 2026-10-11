@@ -1,0 +1,42 @@
+appId: cn.shiguang.dispatch
+productName: 拾光派单
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist-desktop/**/*
+  - desktop/**/*
+  - package.json
+  - "!**/*.map"
+asar: true
+npmRebuild: false
+mac:
+  category: public.app-category.productivity
+  icon: build/icon.png
+  target:
+    - target: dmg
+      arch: [universal]
+    - target: zip
+      arch: [universal]
+  identity: "-"
+  notarize: false
+  hardenedRuntime: true
+  entitlements: desktop/entitlements.mac.plist
+  entitlementsInherit: desktop/entitlements.mac.plist
+  minimumSystemVersion: "13.0.0"
+  artifactName: "Shiguang-Dispatch-${version}-mac-${arch}.${ext}"
+dmg:
+  title: 拾光派单
+  icon: build/icon.png
+  iconSize: 90
+  window:
+    width: 540
+    height: 360
+  contents:
+    - x: 150
+      y: 170
+    - x: 390
+      y: 170
+      type: link
+      path: /Applications
+publish: null
