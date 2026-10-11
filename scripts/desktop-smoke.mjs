@@ -180,6 +180,7 @@ try {
   await button("微信派单信息").click();
   const share = await page.getByLabel("派单信息文案").inputValue();
   await button("复制派单信息").click();
+  await page.getByRole("status").filter({ hasText: "已复制" }).waitFor();
   assert.equal(
     (await app.evaluate(({ clipboard }) => clipboard.readText())).replaceAll(
       "\r\n",

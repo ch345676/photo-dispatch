@@ -4,7 +4,7 @@
 
 ## 安装
 
-1. 下载 `Shiguang-Dispatch-1.1.0-mac-universal.dmg`，双击打开。
+1. 下载 `Shiguang-Dispatch-1.1.1-mac-universal.dmg`，双击打开。
 2. 将「拾光派单」拖入 Applications（应用程序），然后从应用程序文件夹启动。
 3. 首次打开是空白个人空间，可以直接添加伙伴和拍摄安排。无演示订单、伙伴、付款、草稿或回收站记录。
 
