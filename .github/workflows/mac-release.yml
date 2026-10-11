@@ -28,7 +28,7 @@ jobs:
       - name: Verify both CPU architectures, signature and disk image
         run: |
           APP='release/mac-universal/拾光派单.app'
-          lipo -verify_arch x86_64 arm64 "$APP/Contents/MacOS/拾光派单"
+          lipo "$APP/Contents/MacOS/拾光派单" -verify_arch x86_64 arm64
           codesign --verify --deep --strict --verbose=2 "$APP"
           hdiutil verify release/*.dmg
       - name: Test packaged app with temporary empty profiles
